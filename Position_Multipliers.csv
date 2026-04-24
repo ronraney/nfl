@@ -1,0 +1,11 @@
+position,factor,value,multiplier,notes
+QB,venue,Dome,1.20,Dome boosts passing
+QB,primetime,TRUE,1.38,National spotlight QB showcase
+RB,venue,Dome,1.00,RBs venue-agnostic
+RB,primetime,TRUE,0.99,Primetime slightly negative for RB
+WR,venue,Dome,1.18,Dome boosts passing
+WR,primetime,TRUE,1.04,Modest primetime boost
+TE,venue,Dome,1.19,Dome boosts passing
+TE,primetime,TRUE,1.06,Modest primetime boost
+DST,venue,Dome,1.05,Minimal venue effect
+DST,primetime,TRUE,1.05,Minimal primetime effect

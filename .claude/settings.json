@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wsl -e bash -c \"cd ~/nfl && clasp push\"",
+            "shell": "powershell",
+            "statusMessage": "Pushing to Apps Script..."
+          }
+        ]
+      }
+    ]
+  }
+}
