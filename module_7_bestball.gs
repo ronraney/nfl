@@ -309,7 +309,7 @@ function writePositionValueRankings() {
   const headers = [
     'rank', 'position', 'player_name', 'team', 'adp', 'round',
     'a_plus_games', 'a_games', 'b_games', 'elite_game_value',
-    'value_ratio', 'elite_value_per_round', 'value_class', 'recommendation'
+    'schedule_pct', 'cost_pct', 'value_score', 'value_class', 'recommendation'
   ];
 
   let currentRow = 1;
@@ -337,8 +337,9 @@ function writePositionValueRankings() {
       p.a_games,
       p.b_games,
       p.elite_game_value,
-      Math.round(p.value_ratio * 1000) / 1000,
-      p.elite_value_per_round,
+      p.schedule_percentile,
+      p.cost_percentile,
+      p.value_score,
       p.value_class,
       p.recommendation
     ]);
@@ -347,10 +348,10 @@ function writePositionValueRankings() {
       sheet.getRange(currentRow, 1, rows.length, headers.length).setValues(rows);
 
       rows.forEach((row, i) => {
-        const cell = sheet.getRange(currentRow + i, 13);
-        if (row[12] === "EXTREME VALUE")     cell.setBackground('#00cc44');
-        else if (row[12] === "STRONG VALUE") cell.setBackground('#90ee90');
-        else if (row[12] === "AVOID")        cell.setBackground('#ffcccb');
+        const cell = sheet.getRange(currentRow + i, 14);
+        if (row[13] === "EXTREME VALUE")     cell.setBackground('#00cc44');
+        else if (row[13] === "STRONG VALUE") cell.setBackground('#90ee90');
+        else if (row[13] === "AVOID")        cell.setBackground('#ffcccb');
       });
 
       currentRow += rows.length + 2;
@@ -391,35 +392,12 @@ function testTask3C() {
 // TASK 3B: CALCULATE VALUE RATIOS
 // ============================================================
 
-function calculateValueRatio(player, maxRound) {
-  // Round-based cost: early round = high cost (100), late round = low cost.
-  // Floor at 10 so rounds 16-18 don't produce near-zero denominators.
-  const round = Math.min(Math.ceil(player.adp / 12), maxRound);
-  const cost = Math.max(((maxRound - round + 1) / maxRound) * 100, 10);
-  return {
-    ...player,
-    round: round,
-    normalized_cost: Math.round(cost * 10) / 10,
-    value_ratio: player.elite_game_value / cost,
-    elite_value_per_round: Math.round((player.elite_game_value / round) * 100) / 100
-  };
-}
-
-function classifyPlayerValue(valueRatio, position) {
-  // Thresholds calibrated for normalized-cost formula (value_ratio ~0.04–0.15+)
-  const thresholds = {
-    QB: { extreme: 0.12, strong: 0.08, fair: 0.05, slight: 0.03 },
-    RB: { extreme: 0.10, strong: 0.07, fair: 0.04, slight: 0.02 },
-    WR: { extreme: 0.10, strong: 0.07, fair: 0.04, slight: 0.02 },
-    TE: { extreme: 0.12, strong: 0.08, fair: 0.05, slight: 0.03 }
-  };
-
-  const t = thresholds[position];
-
-  if (valueRatio >= t.extreme) return "EXTREME VALUE";
-  if (valueRatio >= t.strong)  return "STRONG VALUE";
-  if (valueRatio >= t.fair)    return "FAIR VALUE";
-  if (valueRatio >= t.slight)  return "SLIGHT REACH";
+function classifyPlayerValue(valueScore) {
+  // valueScore = schedule_percentile - cost_percentile (-100 to +100)
+  if (valueScore >  40) return "EXTREME VALUE";
+  if (valueScore >  20) return "STRONG VALUE";
+  if (valueScore >= -20) return "FAIR VALUE";
+  if (valueScore >= -40) return "SLIGHT REACH";
   return "AVOID";
 }
 
@@ -435,28 +413,35 @@ function generateRecommendation(valueClass, aPlusGames) {
 function buildPlayerValueRankings() {
   const mappedPlayers = buildPlayerScheduleMapping();
 
-  const maxRound = Math.max(...mappedPlayers.map(p => Math.ceil(p.adp / 12)));
-
-  Logger.log(`Max round in dataset: ${maxRound}`);
-
-  const rankedPlayers = mappedPlayers.map(player => {
-    const withRatio = calculateValueRatio(player, maxRound);
-    const valueClass = classifyPlayerValue(withRatio.value_ratio, player.position);
-    const recommendation = generateRecommendation(valueClass, player.a_plus_games);
-
-    return { ...withRatio, value_class: valueClass, recommendation: recommendation };
-  });
-
   const byPosition = { QB: [], RB: [], WR: [], TE: [] };
-
-  rankedPlayers.forEach(player => {
-    if (byPosition[player.position]) {
-      byPosition[player.position].push(player);
-    }
+  mappedPlayers.forEach(p => {
+    if (byPosition[p.position]) byPosition[p.position].push({ ...p });
   });
 
-  for (const pos of Object.keys(byPosition)) {
-    byPosition[pos].sort((a, b) => b.value_ratio - a.value_ratio);
+  for (const [pos, players] of Object.entries(byPosition)) {
+    const n = players.length;
+    if (n === 0) continue;
+
+    // Within-position percentile ranks
+    const bySchedule = [...players].sort((a, b) => b.elite_game_value - a.elite_game_value);
+    const byCost     = [...players].sort((a, b) => a.adp - b.adp); // low ADP = most expensive
+
+    players.forEach(player => {
+      const schedRank = bySchedule.findIndex(p => p.player_name === player.player_name);
+      const costRank  = byCost.findIndex(p => p.player_name === player.player_name);
+
+      // 100 = best schedule / most expensive; 0 = worst schedule / cheapest
+      player.schedule_percentile = Math.round(((n - 1 - schedRank) / (n - 1)) * 100);
+      player.cost_percentile     = Math.round(((n - 1 - costRank)  / (n - 1)) * 100);
+      player.value_score         = player.schedule_percentile - player.cost_percentile;
+      player.round               = Math.ceil(player.adp / 12);
+      player.value_class         = classifyPlayerValue(player.value_score);
+      player.recommendation      = generateRecommendation(player.value_class, player.a_plus_games);
+    });
+
+    players.sort((a, b) => b.value_score - a.value_score);
+
+    Logger.log(`${pos}: ${n} players, value_score range ${players[n-1].value_score} to ${players[0].value_score}`);
   }
 
   return byPosition;
