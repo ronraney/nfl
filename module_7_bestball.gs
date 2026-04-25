@@ -307,9 +307,9 @@ function writePositionValueRankings() {
   }
 
   const headers = [
-    'rank', 'position', 'player_name', 'team', 'adp',
+    'rank', 'position', 'player_name', 'team', 'adp', 'round',
     'a_plus_games', 'a_games', 'b_games', 'elite_game_value',
-    'value_ratio', 'games_per_round', 'value_class', 'recommendation'
+    'value_ratio', 'elite_value_per_round', 'value_class', 'recommendation'
   ];
 
   let currentRow = 1;
@@ -332,12 +332,13 @@ function writePositionValueRankings() {
       p.player_name,
       p.team,
       p.adp,
+      p.round,
       p.a_plus_games,
       p.a_games,
       p.b_games,
       p.elite_game_value,
       Math.round(p.value_ratio * 1000) / 1000,
-      Math.round(p.games_per_round * 10) / 10,
+      p.elite_value_per_round,
       p.value_class,
       p.recommendation
     ]);
@@ -346,10 +347,10 @@ function writePositionValueRankings() {
       sheet.getRange(currentRow, 1, rows.length, headers.length).setValues(rows);
 
       rows.forEach((row, i) => {
-        const cell = sheet.getRange(currentRow + i, 12);
-        if (row[11] === "EXTREME VALUE")     cell.setBackground('#00cc44');
-        else if (row[11] === "STRONG VALUE") cell.setBackground('#90ee90');
-        else if (row[11] === "AVOID")        cell.setBackground('#ffcccb');
+        const cell = sheet.getRange(currentRow + i, 13);
+        if (row[12] === "EXTREME VALUE")     cell.setBackground('#00cc44');
+        else if (row[12] === "STRONG VALUE") cell.setBackground('#90ee90');
+        else if (row[12] === "AVOID")        cell.setBackground('#ffcccb');
       });
 
       currentRow += rows.length + 2;
@@ -390,18 +391,17 @@ function testTask3C() {
 // TASK 3B: CALCULATE VALUE RATIOS
 // ============================================================
 
-function calculateValueRatio(player, minAdp, maxAdp) {
-  // Normalize ADP as cost: early pick (low ADP) = high cost (near 100),
-  // late pick (high ADP) = low cost (near 0). Floor at 1 to avoid /0.
-  const normalizedCost = Math.max(
-    ((maxAdp - player.adp) / (maxAdp - minAdp)) * 100,
-    1
-  );
+function calculateValueRatio(player, maxRound) {
+  // Round-based cost: early round = high cost (100), late round = low cost.
+  // Floor at 10 so rounds 16-18 don't produce near-zero denominators.
+  const round = Math.min(Math.ceil(player.adp / 12), maxRound);
+  const cost = Math.max(((maxRound - round + 1) / maxRound) * 100, 10);
   return {
     ...player,
-    normalized_cost: Math.round(normalizedCost * 10) / 10,
-    value_ratio: player.elite_game_value / normalizedCost,
-    games_per_round: player.a_plus_games / (player.adp / 12)
+    round: round,
+    normalized_cost: Math.round(cost * 10) / 10,
+    value_ratio: player.elite_game_value / cost,
+    elite_value_per_round: Math.round((player.elite_game_value / round) * 100) / 100
   };
 }
 
@@ -435,14 +435,12 @@ function generateRecommendation(valueClass, aPlusGames) {
 function buildPlayerValueRankings() {
   const mappedPlayers = buildPlayerScheduleMapping();
 
-  const allAdps = mappedPlayers.map(p => p.adp);
-  const minAdp = Math.min(...allAdps);
-  const maxAdp = Math.max(...allAdps);
+  const maxRound = Math.max(...mappedPlayers.map(p => Math.ceil(p.adp / 12)));
 
-  Logger.log(`ADP range: ${minAdp} – ${maxAdp}`);
+  Logger.log(`Max round in dataset: ${maxRound}`);
 
   const rankedPlayers = mappedPlayers.map(player => {
-    const withRatio = calculateValueRatio(player, minAdp, maxAdp);
+    const withRatio = calculateValueRatio(player, maxRound);
     const valueClass = classifyPlayerValue(withRatio.value_ratio, player.position);
     const recommendation = generateRecommendation(valueClass, player.a_plus_games);
 
