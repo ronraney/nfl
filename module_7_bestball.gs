@@ -90,10 +90,10 @@ function validateModuleData() {
   });
 
   const positionCounts = {
-    QB: adpData.filter(p => p.position === 'QB').length,
-    RB: adpData.filter(p => p.position === 'RB').length,
-    WR: adpData.filter(p => p.position === 'WR').length,
-    TE: adpData.filter(p => p.position === 'TE').length
+    QB: adpData.filter(p => p.position && p.position.startsWith('QB')).length,
+    RB: adpData.filter(p => p.position && p.position.startsWith('RB')).length,
+    WR: adpData.filter(p => p.position && p.position.startsWith('WR')).length,
+    TE: adpData.filter(p => p.position && p.position.startsWith('TE')).length
   };
 
   Logger.log("Data validation successful!");
