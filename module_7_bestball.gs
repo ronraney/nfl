@@ -137,6 +137,130 @@ function testTask1A() {
 }
 
 // ============================================================
+// TASK 3A: MAP PLAYERS TO TEAM DATA
+// ============================================================
+
+function getTeamSummaryData() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Team_Schedule_Summary");
+
+  if (!sheet) {
+    throw new Error("Team_Schedule_Summary not found. Run Task 2B first.");
+  }
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const rows = data.slice(1);
+
+  return rows.map(row => {
+    const summary = {};
+    headers.forEach((header, i) => {
+      summary[header] = row[i];
+    });
+    return summary;
+  });
+}
+
+function mapPlayerToSchedule(player, teamSummaries) {
+  // Normalize position: strip suffix so QB1 -> QB, WR2 -> WR, etc.
+  const basePosition = player.position ? player.position.replace(/\d+$/, '') : '';
+
+  const match = teamSummaries.find(s =>
+    s.team === player.team &&
+    s.position === basePosition
+  );
+
+  if (!match) {
+    Logger.log(`Warning: No schedule data for ${player.player_name} (${player.team} ${player.position})`);
+    return null;
+  }
+
+  return {
+    player_name: player.player_name,
+    team: player.team,
+    position: basePosition,
+    adp: player.adp,
+    total_games: match.total_games,
+    a_plus_games: match.a_plus_games,
+    a_games: match.a_games,
+    b_games: match.b_games,
+    elite_game_value: match.elite_game_value
+  };
+}
+
+function filterTopPlayersByPosition(adpData) {
+  const limits = { QB: 32, RB: 64, WR: 100, TE: 32 };
+
+  const byPosition = { QB: [], RB: [], WR: [], TE: [] };
+
+  adpData.forEach(player => {
+    const base = player.position ? player.position.replace(/\d+$/, '') : '';
+    if (byPosition[base]) {
+      byPosition[base].push(player);
+    }
+  });
+
+  for (const [pos, players] of Object.entries(byPosition)) {
+    players.sort((a, b) => a.adp - b.adp);
+    byPosition[pos] = players.slice(0, limits[pos]);
+  }
+
+  return byPosition;
+}
+
+function buildPlayerScheduleMapping() {
+  const adpData = getADPData();
+  const teamSummaries = getTeamSummaryData();
+  const topPlayers = filterTopPlayersByPosition(adpData);
+
+  const mappedPlayers = [];
+
+  for (const [position, players] of Object.entries(topPlayers)) {
+    for (const player of players) {
+      const mapped = mapPlayerToSchedule(player, teamSummaries);
+      if (mapped) {
+        mappedPlayers.push(mapped);
+      }
+    }
+  }
+
+  Logger.log(`Mapped ${mappedPlayers.length} players to schedule data`);
+
+  return mappedPlayers;
+}
+
+function testTask3A() {
+  try {
+    const mappedPlayers = buildPlayerScheduleMapping();
+
+    const counts = {
+      QB: mappedPlayers.filter(p => p.position === 'QB').length,
+      RB: mappedPlayers.filter(p => p.position === 'RB').length,
+      WR: mappedPlayers.filter(p => p.position === 'WR').length,
+      TE: mappedPlayers.filter(p => p.position === 'TE').length
+    };
+
+    const larPlayers = mappedPlayers.filter(p => p.team === 'LAR');
+    Logger.log("LAR Players with schedule data:");
+    larPlayers.forEach(p => {
+      Logger.log(`${p.player_name} (${p.position}, ADP ${p.adp}): ${p.a_plus_games} A+ games, value ${p.elite_game_value}`);
+    });
+
+    const sorted = [...mappedPlayers].sort((a, b) => b.a_plus_games - a.a_plus_games);
+    Logger.log(`Most A+ games: ${sorted[0].player_name} (${sorted[0].position}, ${sorted[0].team}): ${sorted[0].a_plus_games}`);
+
+    Logger.log(
+      "Task 3A Complete!\n" +
+      `Players mapped: ${mappedPlayers.length}\n` +
+      `QB: ${counts.QB}, RB: ${counts.RB}, WR: ${counts.WR}, TE: ${counts.TE}`
+    );
+
+  } catch (error) {
+    Logger.log("Error: " + error.message);
+  }
+}
+
+// ============================================================
 // TASK 2B: AGGREGATE POSITION STATISTICS
 // ============================================================
 
