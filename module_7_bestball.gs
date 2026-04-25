@@ -137,6 +137,102 @@ function testTask1A() {
 }
 
 // ============================================================
+// TASK 3C: CREATE POSITION VALUE RANKINGS SHEET
+// ============================================================
+
+function writePositionValueRankings() {
+  const rankings = buildPlayerValueRankings();
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Position_Value_Rankings");
+
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet("Position_Value_Rankings");
+  }
+
+  const headers = [
+    'rank', 'position', 'player_name', 'team', 'adp',
+    'a_plus_games', 'a_games', 'b_games', 'elite_game_value',
+    'value_ratio', 'games_per_round', 'value_class', 'recommendation'
+  ];
+
+  let currentRow = 1;
+  const positions = ['QB', 'RB', 'WR', 'TE'];
+
+  for (const position of positions) {
+    sheet.getRange(currentRow, 1).setValue(`[ ${position} RANKINGS ]`).setFontWeight('bold');
+    currentRow += 2;
+
+    sheet.getRange(currentRow, 1, 1, headers.length)
+      .setValues([headers])
+      .setFontWeight('bold')
+      .setBackground('#efefef');
+    currentRow++;
+
+    const players = rankings[position];
+    const rows = players.map((p, i) => [
+      i + 1,
+      p.position,
+      p.player_name,
+      p.team,
+      p.adp,
+      p.a_plus_games,
+      p.a_games,
+      p.b_games,
+      p.elite_game_value,
+      Math.round(p.value_ratio * 1000) / 1000,
+      Math.round(p.games_per_round * 10) / 10,
+      p.value_class,
+      p.recommendation
+    ]);
+
+    if (rows.length > 0) {
+      sheet.getRange(currentRow, 1, rows.length, headers.length).setValues(rows);
+
+      rows.forEach((row, i) => {
+        const cell = sheet.getRange(currentRow + i, 12);
+        if (row[11] === "EXTREME VALUE")     cell.setBackground('#00cc44');
+        else if (row[11] === "STRONG VALUE") cell.setBackground('#90ee90');
+        else if (row[11] === "AVOID")        cell.setBackground('#ffcccb');
+      });
+
+      currentRow += rows.length + 2;
+    }
+  }
+
+  sheet.autoResizeColumns(1, headers.length);
+
+  Logger.log("Position_Value_Rankings created with " + positions.length + " position sections");
+
+  return true;
+}
+
+function testTask3C() {
+  try {
+    writePositionValueRankings();
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName("Position_Value_Rankings");
+
+    if (!sheet) throw new Error("Position_Value_Rankings sheet not created");
+
+    const numRows = sheet.getDataRange().getNumRows();
+
+    Logger.log(
+      "Task 3C Complete!\n" +
+      `Position_Value_Rankings created\n` +
+      `Total rows: ${numRows}\n` +
+      `4 position sections (QB/RB/WR/TE), color-coded by value class`
+    );
+
+  } catch (error) {
+    Logger.log("Error: " + error.message);
+  }
+}
+
+// ============================================================
 // TASK 3B: CALCULATE VALUE RATIOS
 // ============================================================
 
