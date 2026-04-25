@@ -311,7 +311,7 @@ function writePositionValueRankings() {
     'rank', 'position', 'player_name', 'team', 'adp', 'round',
     'a_plus_games', 'a_games', 'b_games', 'elite_game_value',
     'schedule_pct', 'cost_pct', 'value_score',
-    'elite_games_count', 'stack_grade', 'stack_role', 'best_stack_with', 'stack_strategy',
+    'schedule_quality', 'elite_games_count', 'stack_grade', 'stack_role', 'best_stack_with', 'stack_strategy',
     'value_class', 'recommendation'
   ];
 
@@ -343,6 +343,7 @@ function writePositionValueRankings() {
       p.schedule_percentile,
       p.cost_percentile,
       p.value_score,
+      p.schedule_quality,
       p.elite_games_count,
       p.stack_grade,
       p.stack_role,
@@ -356,10 +357,10 @@ function writePositionValueRankings() {
       sheet.getRange(currentRow, 1, rows.length, headers.length).setValues(rows);
 
       rows.forEach((row, i) => {
-        const cell = sheet.getRange(currentRow + i, 19);
-        if (row[18] === "EXTREME VALUE")     cell.setBackground('#00cc44');
-        else if (row[18] === "STRONG VALUE") cell.setBackground('#90ee90');
-        else if (row[18] === "AVOID")        cell.setBackground('#ffcccb');
+        const cell = sheet.getRange(currentRow + i, 20);
+        if (row[19] === "EXTREME VALUE")     cell.setBackground('#00cc44');
+        else if (row[19] === "STRONG VALUE") cell.setBackground('#90ee90');
+        else if (row[19] === "AVOID")        cell.setBackground('#ffcccb');
       });
 
       currentRow += rows.length + 2;
@@ -400,11 +401,19 @@ function testTask3C() {
 // STACK TARGETS
 // ============================================================
 
+function gradeToScore(grade) {
+  if (grade === 'A+') return 100;
+  if (grade === 'A')  return 80;
+  if (grade === 'B')  return 60;
+  if (grade === 'C')  return 40;
+  return 20;
+}
+
 function computeStackEfficiencyGrade(efficiency) {
-  if (efficiency >= 0.050) return 'A+';
-  if (efficiency >= 0.035) return 'A';
-  if (efficiency >= 0.025) return 'B';
-  if (efficiency >= 0.015) return 'C';
+  if (efficiency >= 8.0) return 'A+';
+  if (efficiency >= 6.0) return 'A';
+  if (efficiency >= 4.0) return 'B';
+  if (efficiency >= 2.5) return 'C';
   return 'D';
 }
 
@@ -438,12 +447,9 @@ function buildStackTargets(byPosition) {
     const pc1 = passCatchers[0];
     const pc2 = passCatchers[1];
 
-    // All teammates share the same schedule → shared elite games = team's count
-    const sharedEliteGames = qb.elite_games_count;
-    if (sharedEliteGames < 2) continue;
-
+    const sharedScheduleQuality = Math.round((qb.schedule_quality + pc1.schedule_quality + pc2.schedule_quality) / 3);
     const totalCost = qb.adp + pc1.adp + pc2.adp;
-    const efficiency = sharedEliteGames / totalCost;
+    const efficiency = Math.round((sharedScheduleQuality / totalCost) * 100) / 100;
     const grade = computeStackEfficiencyGrade(efficiency);
     const strategy = computeStackDraftStrategy(grade);
 
@@ -464,8 +470,8 @@ function buildStackTargets(byPosition) {
       pc2_position: pc2.position,
       pc2_adp: pc2.adp,
       total_stack_cost: Math.round(totalCost * 10) / 10,
-      shared_elite_games: sharedEliteGames,
-      stack_efficiency: Math.round(efficiency * 1000) / 1000,
+      shared_schedule_quality: sharedScheduleQuality,
+      stack_efficiency: efficiency,
       stack_grade: grade,
       draft_strategy: strategy,
       optional_4th_name: fourth ? fourth.player_name : '',
@@ -495,7 +501,7 @@ function writeStackTargets() {
     'qb_name', 'qb_adp',
     'pc1_name', 'pc1_position', 'pc1_adp',
     'pc2_name', 'pc2_position', 'pc2_adp',
-    'total_stack_cost', 'shared_elite_games', 'stack_efficiency',
+    'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency',
     'stack_grade', 'draft_strategy',
     'optional_4th_name', 'optional_4th_position', 'optional_4th_adp'
   ];
@@ -511,7 +517,7 @@ function writeStackTargets() {
     s.qb_name, s.qb_adp,
     s.pc1_name, s.pc1_position, s.pc1_adp,
     s.pc2_name, s.pc2_position, s.pc2_adp,
-    s.total_stack_cost, s.shared_elite_games, s.stack_efficiency,
+    s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency,
     s.stack_grade, s.draft_strategy,
     s.optional_4th_name, s.optional_4th_position, s.optional_4th_adp
   ]);
@@ -578,28 +584,27 @@ function computeStackGrade(count, position) {
 function computeStackStrategy(grade, role) {
   if (grade === 'A+' && role === 'WR1 Anchor') return 'Draft early, build stack around';
   if (grade === 'A+' && role === 'QB Core')    return 'Priority target if you have teammates';
+  if (grade === 'A'  && role === 'QB Core')    return 'Strong target if you have teammates';
   if (grade === 'A'  && (role === 'WR2 Core' || role === 'TE Core')) return 'Complete stack if anchor drafted';
-  if (grade === 'B')                           return "Take if value, don't force";
+  if (grade === 'B'  && role === 'QB Core')    return "Take if value, don't force";
+  if (grade === 'B')                           return 'Opportunistic if completing stack';
   return 'Talent only, low stack value';
 }
 
 function enrichWithStackData(byPosition, scheduleData) {
-  // Top 50 games by environment_rate across all 272 games
-  const sorted = [...scheduleData].sort((a, b) => b.environment_rate - a.environment_rate);
-  const eliteKeys = new Set(
-    sorted.slice(0, 50).map(g => `${g.week}_${g.home_team}_${g.away_team}`)
-  );
+  const posGradeField = { QB: 'qb_grade', RB: 'rb_grade', WR: 'wr_grade', TE: 'te_grade' };
 
   const allPlayers = Object.values(byPosition).flat();
 
-  // elite_games_count + stack_grade per player
+  // schedule_quality, elite_games_count, stack_grade per player
   allPlayers.forEach(p => {
-    const teamGames = scheduleData.filter(g => g.home_team === p.team || g.away_team === p.team);
-    p.elite_games_count = teamGames.filter(g =>
-      eliteKeys.has(`${g.week}_${g.home_team}_${g.away_team}`)
-    ).length;
+    const gradeField = posGradeField[p.position];
+    const teamGames  = scheduleData.filter(g => g.home_team === p.team || g.away_team === p.team);
+    const scores     = teamGames.map(g => gradeToScore(g[gradeField]));
+    p.schedule_quality  = scores.reduce((sum, s) => sum + s, 0);
+    p.elite_games_count = scores.filter(s => s >= 70).length;
     p.stack_grade = computeStackGrade(p.elite_games_count, p.position);
-    p.stack_role = 'Not Stackable';
+    p.stack_role  = 'Not Stackable';
   });
 
   // Stack roles and best_stack_with by team
