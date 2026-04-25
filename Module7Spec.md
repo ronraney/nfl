@@ -6,6 +6,39 @@
 
 ---
 
+## ⚠️ CRITICAL FIX: PERCENTILE DIFFERENCE VALUE RATING
+
+**Problem Identified:** Original value_ratio calculation used raw ADP (pick number) as denominator, which made early picks (low numbers) appear as better value than late picks.
+
+**First Attempted Fix (Normalized Cost Division):** Created division-by-small-number problem where late picks dominated due to tiny denominators (elite_value / 0.02 = extreme outliers).
+
+**Final Fix (Percentile Difference):** Calculate percentile ranks for both schedule quality and draft cost, then use subtraction instead of division.
+
+**Formula:**
+```
+value_percentile = percentileRank(player.elite_game_value)  // 0-100
+cost_percentile = percentileRank(player.adp)                // Low ADP = high %ile
+value_rating = value_percentile - cost_percentile           // -100 to +100
+```
+
+**Example:**
+- **Stafford:** 80th %ile schedule, 50th %ile cost = **+30** (strong value)
+- **Bijan:** 60th %ile schedule, 99th %ile cost = **-39** (expensive for schedule)
+- **Late player with bad schedule:** 20th %ile schedule, 10th %ile cost = **+10** (fair)
+
+**Thresholds:**
+- \>40: EXTREME VALUE (schedule WAY better than cost)
+- 20-40: STRONG VALUE
+- -20 to 20: FAIR VALUE (schedule matches cost)
+- -40 to -20: SLIGHT REACH
+- <-40: AVOID (paying too much for schedule quality)
+
+**Impact:** Clean, interpretable metric with no division-by-zero issues. Late picks with elite schedules correctly identified as value targets.
+
+**Affects:** Tasks 3B, 3C, 4A, 5A - all downstream tasks using value calculations
+
+---
+
 ## PLAYER SCOPE
 
 - **QB:** Top 32 (all viable starters)
@@ -928,22 +961,57 @@ Task 3A is complete when:
 
 Calculate games/ADP value ratios and classify players as EXTREME VALUE / STRONG / FAIR / AVOID.
 
+**CRITICAL FIX:** Normalize ADP as COST (inverse scale) so early picks are expensive and late picks are cheap, like DFS salary structure.
+
 ---
 
 ## Implementation
 
-### Function 1: Calculate Value Ratio
+### Function 1: Normalize ADP as Cost
 
 ```javascript
 /**
- * Calculate value ratio (elite games per ADP point)
- * @param {Object} player - From buildPlayerScheduleMapping()
+ * Normalize ADP to cost scale (100 = most expensive, 0 = cheapest)
+ * @param {Array} players - All mapped players
+ * @returns {Array} Players with normalized_cost added
+ */
+function normalizeADPasCost(players) {
+  // Find min and max ADP
+  const adps = players.map(p => p.adp);
+  const minADP = Math.min(...adps);
+  const maxADP = Math.max(...adps);
+  const range = maxADP - minADP;
+
+  return players.map(player => ({
+    ...player,
+    normalized_cost: ((maxADP - player.adp) / range) * 100
+  }));
+}
+```
+
+**Example:**
+- Pick 1 (ADP 1.4) → normalized_cost = 100 (most expensive)
+- Pick 100 (ADP 100) → normalized_cost = ~52 (mid-range)
+- Pick 210 (ADP 210) → normalized_cost = 0 (cheapest)
+
+---
+
+### Function 2: Calculate Value Ratio
+
+```javascript
+/**
+ * Calculate value ratio using normalized cost
+ * Formula: elite_game_value / normalized_cost (like DFS pts/salary)
+ * @param {Object} player - From normalizeADPasCost()
  * @returns {Object} Player with value_ratio added
  */
 function calculateValueRatio(player) {
+  // Prevent division by zero for last pick
+  const cost = player.normalized_cost || 0.1;
+
   return {
     ...player,
-    value_ratio: player.elite_game_value / player.adp,
+    value_ratio: player.elite_game_value / cost,
     games_per_round: player.a_plus_games / (player.adp / 12) // Assuming 12-team
   };
 }
@@ -951,22 +1019,24 @@ function calculateValueRatio(player) {
 
 ---
 
-### Function 2: Classify Player Value
+### Function 3: Classify Player Value
 
 ```javascript
 /**
  * Classify player value based on ratio
- * @param {number} valueRatio - games/ADP ratio
+ * NOTE: Thresholds adjusted for normalized cost system
+ * @param {number} valueRatio - elite_value/normalized_cost ratio
  * @param {string} position - Player position
  * @returns {string} Value classification
  */
 function classifyPlayerValue(valueRatio, position) {
-  // Position-specific thresholds
+  // UPDATED thresholds for normalized cost (0-100 scale)
+  // Higher ratios = better value (late picks with good schedules)
   const thresholds = {
-    QB: { extreme: 0.10, strong: 0.06, fair: 0.04, slight: 0.02 },
-    RB: { extreme: 0.08, strong: 0.05, fair: 0.03, slight: 0.015 },
-    WR: { extreme: 0.08, strong: 0.05, fair: 0.03, slight: 0.015 },
-    TE: { extreme: 0.10, strong: 0.06, fair: 0.04, slight: 0.02 }
+    QB: { extreme: 0.15, strong: 0.10, fair: 0.07, slight: 0.05 },
+    RB: { extreme: 0.12, strong: 0.08, fair: 0.05, slight: 0.03 },
+    WR: { extreme: 0.12, strong: 0.08, fair: 0.05, slight: 0.03 },
+    TE: { extreme: 0.15, strong: 0.10, fair: 0.07, slight: 0.05 }
   };
 
   const t = thresholds[position];
@@ -1009,17 +1079,22 @@ function generateRecommendation(valueClass, aPlusGames) {
 
 ---
 
-### Function 4: Build Complete Player Rankings
+### Function 5: Build Complete Player Rankings
 
 ```javascript
 /**
  * Add value calculations to all players and sort
+ * UPDATED: Now normalizes ADP as cost before calculating ratios
  * @returns {Object} Rankings by position
  */
 function buildPlayerValueRankings() {
   const mappedPlayers = buildPlayerScheduleMapping();
 
-  const rankedPlayers = mappedPlayers.map(player => {
+  // STEP 1: Normalize ADP as cost (100 = expensive, 0 = cheap)
+  const normalizedPlayers = normalizeADPasCost(mappedPlayers);
+
+  // STEP 2: Calculate value ratios using normalized cost
+  const rankedPlayers = normalizedPlayers.map(player => {
     const withRatio = calculateValueRatio(player);
     const valueClass = classifyPlayerValue(withRatio.value_ratio, player.position);
     const recommendation = generateRecommendation(valueClass, player.a_plus_games);
@@ -1054,26 +1129,32 @@ function buildPlayerValueRankings() {
 
 ---
 
-### Function 5: Test Runner
+### Function 6: Test Runner
 
 ```javascript
 /**
- * Test Task 3B - value calculations
+ * Test Task 3B - value calculations with normalized cost
  */
 function testTask3B() {
   try {
     const rankings = buildPlayerValueRankings();
 
-    // Show top 5 QBs by value
-    Logger.log("Top 5 QBs by value ratio:");
+    // Show top 5 QBs by value (should now favor late picks with good schedules)
+    Logger.log("Top 5 QBs by value ratio (normalized cost):");
     rankings.QB.slice(0, 5).forEach((p, i) => {
-      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}): ${p.value_ratio.toFixed(3)} - ${p.value_class}`);
+      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}, Cost ${p.normalized_cost.toFixed(1)}): ${p.value_ratio.toFixed(3)} - ${p.value_class}`);
     });
 
+    // Show Stafford specifically (should now be high value)
+    const stafford = rankings.QB.find(p => p.player_name.includes('Stafford'));
+    if (stafford) {
+      Logger.log(`\nStafford check: ADP ${stafford.adp}, normalized_cost ${stafford.normalized_cost.toFixed(1)}, value_ratio ${stafford.value_ratio.toFixed(3)}`);
+    }
+
     // Show top 5 WRs by value
-    Logger.log("\nTop 5 WRs by value ratio:");
+    Logger.log("\nTop 5 WRs by value ratio (normalized cost):");
     rankings.WR.slice(0, 5).forEach((p, i) => {
-      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}): ${p.value_ratio.toFixed(3)} - ${p.value_class}`);
+      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}, Cost ${p.normalized_cost.toFixed(1)}): ${p.value_ratio.toFixed(3)} - ${p.value_class}`);
     });
 
     // Count EXTREME VALUE players
@@ -1086,7 +1167,7 @@ function testTask3B() {
 
     SpreadsheetApp.getUi().alert(
       "Task 3B Complete!\n\n" +
-      `EXTREME VALUE players:\n` +
+      `EXTREME VALUE players (with normalized cost):\n` +
       `QB: ${extremeCount.QB}\n` +
       `RB: ${extremeCount.RB}\n` +
       `WR: ${extremeCount.WR}\n` +
@@ -1107,22 +1188,24 @@ function testTask3B() {
 
 Task 3B is complete when:
 
-- [ ] All players have value_ratio calculated
+- [ ] All players have normalized_cost calculated (100 = expensive, 0 = cheap)
+- [ ] All players have value_ratio calculated using normalized cost
 - [ ] Value classifications assigned (EXTREME/STRONG/FAIR/AVOID)
 - [ ] Recommendations generated
-- [ ] Late-round QBs with elite schedules show EXTREME VALUE
-- [ ] Early-round players with poor schedules show AVOID
+- [ ] **CRITICAL:** Late-round players (high ADP, low cost) with elite schedules show EXTREME VALUE
+- [ ] **CRITICAL:** Early-round players (low ADP, high cost) with poor schedules show AVOID
+- [ ] Stafford (ADP ~100) with 6.8 elite value should rank HIGHER than early QBs with similar value
 - [ ] Rankings sorted by value_ratio per position
-- [ ] Execution log shows top 5 QBs and WRs
+- [ ] Execution log shows normalized_cost values
 - [ ] `testTask3B()` displays success with extreme value counts
 
 ---
 
 ## Deliverables
 
-- 5 new functions
-- Value ratio calculations for all players
-- Execution log showing value leaders
+- 6 new functions (including normalized cost calculation)
+- Value ratio calculations for all players using normalized cost
+- Execution log showing value leaders with cost breakdown
 
 ---
 
@@ -1174,7 +1257,7 @@ function writePositionValueRankings() {
 
   // Headers
   const headers = [
-    'rank', 'position', 'player_name', 'team', 'adp',
+    'rank', 'position', 'player_name', 'team', 'adp', 'normalized_cost',
     'a_plus_games', 'a_games', 'b_games', 'elite_game_value',
     'value_ratio', 'games_per_round', 'value_class', 'recommendation'
   ];
@@ -1204,6 +1287,7 @@ function writePositionValueRankings() {
       p.player_name,
       p.team,
       p.adp,
+      Math.round(p.normalized_cost * 10) / 10, // Round to 1 decimal
       p.a_plus_games,
       p.a_games,
       p.b_games,
@@ -1218,16 +1302,16 @@ function writePositionValueRankings() {
       sheet.getRange(currentRow, 1, rows.length, headers.length).setValues(rows);
 
       // Conditional formatting for value_class
-      const valueClassRange = sheet.getRange(currentRow, 12, rows.length, 1);
+      const valueClassRange = sheet.getRange(currentRow, 13, rows.length, 1);
 
       // Color code: EXTREME = green, STRONG = light green, AVOID = red
       rows.forEach((row, i) => {
-        const cell = sheet.getRange(currentRow + i, 12);
-        if (row[11] === "EXTREME VALUE") {
+        const cell = sheet.getRange(currentRow + i, 13);
+        if (row[12] === "EXTREME VALUE") {
           cell.setBackground('#00ff00');
-        } else if (row[11] === "STRONG VALUE") {
+        } else if (row[12] === "STRONG VALUE") {
           cell.setBackground('#90ee90');
-        } else if (row[11] === "AVOID") {
+        } else if (row[12] === "AVOID") {
           cell.setBackground('#ffcccb');
         }
       });
@@ -1292,10 +1376,12 @@ Task 3C is complete when:
 
 - [ ] Position_Value_Rankings sheet created
 - [ ] 4 position sections (QB/RB/WR/TE)
-- [ ] Players sorted by value_ratio within position
+- [ ] Players sorted by value_ratio within position (highest first)
+- [ ] **normalized_cost column present** (100 = expensive early picks, 0 = cheap late picks)
 - [ ] EXTREME VALUE rows highlighted green
 - [ ] AVOID rows highlighted red
 - [ ] All columns populated correctly
+- [ ] Late picks with good schedules ranking at top (high value_ratio)
 - [ ] Sheet formatted and readable
 - [ ] `testTask3C()` displays success alert
 
