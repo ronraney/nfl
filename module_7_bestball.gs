@@ -60,6 +60,10 @@ function validateModuleData() {
     }
   });
 
+  if (adpData.length === 0) {
+    throw new Error("Best_Ball_ADP sheet has no valid data. Please import ADP data (player_name, team, position, adp columns required).");
+  }
+
   const requiredADPColumns = ['player_name', 'team', 'position', 'adp'];
   const firstPlayer = adpData[0];
 
