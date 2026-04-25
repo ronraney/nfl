@@ -137,6 +137,160 @@ function testTask1A() {
 }
 
 // ============================================================
+// TASK 4A: IDENTIFY STACKABLE GAMES
+// ============================================================
+
+function findStackableGames(scheduleData) {
+  return scheduleData.filter(game => {
+    const aPlusCount = [
+      game.qb_grade,
+      game.rb_grade,
+      game.wr_grade,
+      game.te_grade
+    ].filter(g => g === 'A+').length;
+
+    return aPlusCount >= 3;
+  }).map(game => ({
+    game_id: game.game_id,
+    week: game.week,
+    matchup: `${game.away_team} @ ${game.home_team}`,
+    home_team: game.home_team,
+    away_team: game.away_team,
+    environment_key: game.environment_key,
+    environment_rate: game.environment_rate,
+    qb_grade: game.qb_grade,
+    rb_grade: game.rb_grade,
+    wr_grade: game.wr_grade,
+    te_grade: game.te_grade,
+    a_plus_count: [game.qb_grade, game.rb_grade, game.wr_grade, game.te_grade]
+                    .filter(g => g === 'A+').length,
+    game_type: game.game_type
+  }));
+}
+
+function findBestPlayer(team, position, rankings) {
+  const teamPlayers = (rankings[position] || []).filter(p => p.team === team);
+  if (teamPlayers.length === 0) return null;
+  teamPlayers.sort((a, b) => b.value_ratio - a.value_ratio);
+  return teamPlayers[0];
+}
+
+function buildStackRecommendation(game, rankings) {
+  const stack = {
+    game_id: game.game_id,
+    week: game.week,
+    matchup: game.matchup,
+    environment_rate: game.environment_rate || 0,
+    a_plus_positions: game.a_plus_count,
+    players: []
+  };
+
+  if (game.qb_grade === 'A+') {
+    const qb = findBestPlayer(game.home_team, 'QB', rankings);
+    if (qb) stack.players.push(qb);
+  }
+
+  if (game.wr_grade === 'A+') {
+    const homeWRs = (rankings.WR || []).filter(p => p.team === game.home_team);
+    homeWRs.sort((a, b) => b.value_ratio - a.value_ratio);
+    stack.players.push(...homeWRs.slice(0, 2));
+  }
+
+  const awayWRs = (rankings.WR || []).filter(p => p.team === game.away_team);
+  awayWRs.sort((a, b) => b.value_ratio - a.value_ratio);
+  if (awayWRs.length > 0) stack.players.push(awayWRs[0]);
+
+  stack.total_adp = stack.players.reduce((sum, p) => sum + p.adp, 0);
+  stack.total_elite_value = stack.players.reduce((sum, p) => sum + p.elite_game_value, 0);
+  stack.value_score = stack.players.length > 0 ? stack.total_elite_value / stack.total_adp : 0;
+
+  return stack;
+}
+
+function generateStackBlueprint() {
+  const scheduleData = getScheduleData();
+  const rankings = buildPlayerValueRankings();
+  const stackableGames = findStackableGames(scheduleData);
+
+  Logger.log(`Stackable games found: ${stackableGames.length}`);
+
+  const stacks = stackableGames.map(game => buildStackRecommendation(game, rankings));
+  stacks.sort((a, b) => b.value_score - a.value_score);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Stack_Blueprint");
+
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet("Stack_Blueprint");
+  }
+
+  sheet.getRange(1, 1).setValue('[ ELITE GAME STACKS ]').setFontWeight('bold');
+
+  let currentRow = 3;
+
+  stacks.forEach((stack, i) => {
+    sheet.getRange(currentRow, 1)
+      .setValue(`${i+1}. Week ${stack.week}: ${stack.matchup}`)
+      .setFontWeight('bold');
+    currentRow++;
+
+    sheet.getRange(currentRow, 1)
+      .setValue(`Environment: ${stack.environment_rate.toFixed ? stack.environment_rate.toFixed(3) : stack.environment_rate} | A+ Positions: ${stack.a_plus_positions}`);
+    currentRow++;
+
+    sheet.getRange(currentRow, 1, 1, 5)
+      .setValues([['Player', 'Pos', 'Team', 'ADP', 'Value']])
+      .setFontWeight('bold');
+    currentRow++;
+
+    stack.players.forEach(p => {
+      sheet.getRange(currentRow, 1, 1, 5)
+        .setValues([[p.player_name, p.position, p.team, p.adp, p.elite_game_value]]);
+      currentRow++;
+    });
+
+    sheet.getRange(currentRow, 1, 1, 5)
+      .setValues([['STACK TOTALS:', '', '', stack.total_adp, stack.total_elite_value.toFixed(1)]])
+      .setFontWeight('bold')
+      .setBackground('#efefef');
+    currentRow++;
+
+    sheet.getRange(currentRow, 1).setValue(`Value Score: ${stack.value_score.toFixed(3)}`);
+    currentRow += 2;
+  });
+
+  sheet.autoResizeColumns(1, 5);
+
+  Logger.log(`Stack_Blueprint created with ${stacks.length} stacks`);
+
+  return stacks;
+}
+
+function testTask4A() {
+  try {
+    const stacks = generateStackBlueprint();
+
+    Logger.log("Top 3 stacks by value:");
+    stacks.slice(0, 3).forEach((s, i) => {
+      Logger.log(`${i+1}. Week ${s.week}: ${s.matchup} (${s.players.length} players, score ${s.value_score.toFixed(3)})`);
+      s.players.forEach(p => {
+        Logger.log(`   ${p.player_name} (${p.position}, ADP ${p.adp})`);
+      });
+    });
+
+    Logger.log(
+      "Task 4A Complete!\n" +
+      `Stack_Blueprint created\n` +
+      `Stackable games: ${stacks.length}`
+    );
+
+  } catch (error) {
+    Logger.log("Error: " + error.message);
+  }
+}
+// ============================================================
 // TASK 3C: CREATE POSITION VALUE RANKINGS SHEET
 // ============================================================
 
