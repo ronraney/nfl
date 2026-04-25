@@ -603,6 +603,30 @@ function testStackTargets() {
 }
 
 // ============================================================
+// MENU
+// ============================================================
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('Best Ball')
+    .addItem('Build All Sheets', 'runAllSheets')
+    .addToUi();
+}
+
+function runAllSheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  ss.toast('Building stacking sheets...', 'Best Ball', -1);
+
+  writePositionValueRankings(); // Position_Value_Rankings
+  writeStackTargets();          // Stack_Targets
+  writeTeamStackRankings();     // Team_Stack_Rankings
+  writeGameScores();            // Game_Scores
+
+  ss.toast('Done!', 'Best Ball', 5);
+  Logger.log('runAllSheets complete');
+}
+
+// ============================================================
 // TASK 3B: CALCULATE VALUE RATIOS
 // ============================================================
 
