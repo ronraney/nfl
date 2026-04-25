@@ -390,20 +390,28 @@ function testTask3C() {
 // TASK 3B: CALCULATE VALUE RATIOS
 // ============================================================
 
-function calculateValueRatio(player) {
+function calculateValueRatio(player, minAdp, maxAdp) {
+  // Normalize ADP as cost: early pick (low ADP) = high cost (near 100),
+  // late pick (high ADP) = low cost (near 0). Floor at 1 to avoid /0.
+  const normalizedCost = Math.max(
+    ((maxAdp - player.adp) / (maxAdp - minAdp)) * 100,
+    1
+  );
   return {
     ...player,
-    value_ratio: player.elite_game_value / player.adp,
+    normalized_cost: Math.round(normalizedCost * 10) / 10,
+    value_ratio: player.elite_game_value / normalizedCost,
     games_per_round: player.a_plus_games / (player.adp / 12)
   };
 }
 
 function classifyPlayerValue(valueRatio, position) {
+  // Thresholds calibrated for normalized-cost formula (value_ratio ~0.04–0.15+)
   const thresholds = {
-    QB: { extreme: 0.10, strong: 0.06, fair: 0.04, slight: 0.02 },
-    RB: { extreme: 0.08, strong: 0.05, fair: 0.03, slight: 0.015 },
-    WR: { extreme: 0.08, strong: 0.05, fair: 0.03, slight: 0.015 },
-    TE: { extreme: 0.10, strong: 0.06, fair: 0.04, slight: 0.02 }
+    QB: { extreme: 0.12, strong: 0.08, fair: 0.05, slight: 0.03 },
+    RB: { extreme: 0.10, strong: 0.07, fair: 0.04, slight: 0.02 },
+    WR: { extreme: 0.10, strong: 0.07, fair: 0.04, slight: 0.02 },
+    TE: { extreme: 0.12, strong: 0.08, fair: 0.05, slight: 0.03 }
   };
 
   const t = thresholds[position];
@@ -427,8 +435,14 @@ function generateRecommendation(valueClass, aPlusGames) {
 function buildPlayerValueRankings() {
   const mappedPlayers = buildPlayerScheduleMapping();
 
+  const allAdps = mappedPlayers.map(p => p.adp);
+  const minAdp = Math.min(...allAdps);
+  const maxAdp = Math.max(...allAdps);
+
+  Logger.log(`ADP range: ${minAdp} – ${maxAdp}`);
+
   const rankedPlayers = mappedPlayers.map(player => {
-    const withRatio = calculateValueRatio(player);
+    const withRatio = calculateValueRatio(player, minAdp, maxAdp);
     const valueClass = classifyPlayerValue(withRatio.value_ratio, player.position);
     const recommendation = generateRecommendation(valueClass, player.a_plus_games);
 
