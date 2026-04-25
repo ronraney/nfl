@@ -607,8 +607,18 @@ function testStackTargets() {
 // ============================================================
 
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('Best Ball')
+  const ui = SpreadsheetApp.getUi();
+
+  // Module 6: Schedule processing
+  ui.createMenu('🏈 NFL Schedule')
+    .addItem('Process Schedule', 'processSchedule')
+    .addItem('Fix Home/Away Rates', 'updateScheduleWithHomeAwayCeilingRates')
+    .addSeparator()
+    .addItem('View QA Test', 'openQATest')
+    .addToUi();
+
+  // Module 7: Best Ball analysis
+  ui.createMenu('Best Ball')
     .addItem('Process Schedule', 'buildTeamScheduleSummary')
     .addSeparator()
     .addItem('Build All Sheets', 'runAllSheets')

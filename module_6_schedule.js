@@ -1,14 +1,6 @@
 // Module 6: Schedule Processing - v2.0
 // Position-specific grading, 24-scenario environment lookup, 47-column output
-
-function onOpen() {
-  const ui = SpreadsheetApp.getUi();
-  ui.createMenu('🏈 NFL Schedule')
-    .addItem('Process Schedule', 'processSchedule')
-    .addSeparator()
-    .addItem('View QA Test', 'openQATest')
-    .addToUi();
-}
+// onOpen is defined in module_7_bestball.gs to avoid duplicate function conflict
 
 function openQATest() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -571,4 +563,196 @@ function generateQATest(ss, originalData, processedGames, teamsData) {
   }
 
   sheet.autoResizeColumns(1, 8);
+}
+
+// ---------------------------------------------------------------------------
+// MODULE 6 FIX: HOME/AWAY CEILING RATES
+// Reads Vegas_Enhanced_Performances sheet (import the CSV as a sheet first)
+// Adds 8 new columns to Schedule_Enriched with separate home/away rates.
+
+function buildHomeAwayCeilingRates() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const perfSheet = ss.getSheetByName("Vegas_Enhanced_Performances");
+  if (!perfSheet) {
+    throw new Error(
+      "Vegas_Enhanced_Performances sheet not found.\n" +
+      "Please import the CSV file as a sheet in this spreadsheet first."
+    );
+  }
+
+  const raw = perfSheet.getDataRange().getValues();
+  if (raw.length < 2) throw new Error("Vegas_Enhanced_Performances sheet is empty.");
+
+  const headers = raw[0].map(h => String(h).trim());
+  const rows = raw.slice(1);
+
+  const VALID_POS = ['QB', 'RB', 'WR', 'TE'];
+  const MIN_SAMPLE = 5;
+  const MIN_RATE = 0.15;
+  const MAX_RATE = 0.50;
+  const clamp = r => Math.min(MAX_RATE, Math.max(MIN_RATE, r));
+
+  const posCol       = headers.indexOf('DK Pos');
+  const venueTypeCol = headers.indexOf('Venue_Type');
+  const homeAwayCol  = headers.indexOf('Home_Away');
+  const primetimeCol = headers.indexOf('Primetime');
+  const weekTierCol  = headers.indexOf('Week_Tier');
+  const top5Col      = headers.indexOf('DK Top5 Pts');
+
+  if ([posCol, venueTypeCol, homeAwayCol, primetimeCol, weekTierCol, top5Col].includes(-1)) {
+    throw new Error(
+      "Required columns not found in Vegas_Enhanced_Performances.\n" +
+      "Expected: DK Pos, Venue_Type, Home_Away, Primetime, Week_Tier, DK Top5 Pts"
+    );
+  }
+
+  // envPosStats: "VenueType_HomeAway_PrimetimeLabel_WeekTier|POS" -> {total, ceiling}
+  const envPosStats     = {};
+  // baseEnvPosStats: "VenueType_PrimetimeLabel_WeekTier|POS" -> {total, ceiling} (home+away combined)
+  const baseEnvPosStats = {};
+  // posStats: position -> {total, ceiling}
+  const posStats        = {};
+
+  rows.forEach(row => {
+    const pos = String(row[posCol]).trim();
+    if (!VALID_POS.includes(pos)) return;
+
+    const venueType     = String(row[venueTypeCol]).trim();
+    const homeAway      = String(row[homeAwayCol]).trim();
+    const primetime     = String(row[primetimeCol]).trim();
+    const weekTier      = String(row[weekTierCol]).trim();
+    const isTop5        = String(row[top5Col]).trim().toUpperCase() === 'TRUE';
+    const primetimeLabel = (primetime === 'Yes') ? 'Prime' : 'Day';
+
+    const envKey     = `${venueType}_${homeAway}_${primetimeLabel}_${weekTier}`;
+    const baseEnvKey = `${venueType}_${primetimeLabel}_${weekTier}`;
+    const epKey      = `${envKey}|${pos}`;
+    const bepKey     = `${baseEnvKey}|${pos}`;
+
+    if (!envPosStats[epKey])     envPosStats[epKey]     = { total: 0, ceiling: 0 };
+    if (!baseEnvPosStats[bepKey]) baseEnvPosStats[bepKey] = { total: 0, ceiling: 0 };
+    if (!posStats[pos])          posStats[pos]           = { total: 0, ceiling: 0 };
+
+    envPosStats[epKey].total++;
+    baseEnvPosStats[bepKey].total++;
+    posStats[pos].total++;
+
+    if (isTop5) {
+      envPosStats[epKey].ceiling++;
+      baseEnvPosStats[bepKey].ceiling++;
+      posStats[pos].ceiling++;
+    }
+  });
+
+  // Position baselines (ultimate fallback)
+  const posBaselines = {};
+  VALID_POS.forEach(pos => {
+    const s = posStats[pos];
+    posBaselines[pos] = s ? clamp(s.ceiling / s.total) : 0.25;
+  });
+
+  // getRateForEnvPos: implements 3-tier fallback per spec
+  function getRateForEnvPos(envKey, pos) {
+    const epKey = `${envKey}|${pos}`;
+    const stats = envPosStats[epKey];
+
+    if (stats && stats.total >= MIN_SAMPLE) {
+      return clamp(Math.round((stats.ceiling / stats.total) * 1000) / 1000);
+    }
+
+    // Fallback 1: combined home+away for same base environment
+    const parts = envKey.split('_');
+    const bepKey = `${parts[0]}_${parts[2]}_${parts[3]}|${pos}`;
+    const combined = baseEnvPosStats[bepKey];
+
+    if (combined && combined.total >= MIN_SAMPLE) {
+      return clamp(Math.round((combined.ceiling / combined.total) * 1000) / 1000);
+    }
+
+    // Fallback 2: position baseline across all environments
+    return posBaselines[pos];
+  }
+
+  // Log sample summary
+  const totalGroups = Object.keys(envPosStats).length;
+  const smallSample = Object.values(envPosStats).filter(s => s.total < MIN_SAMPLE).length;
+  Logger.log(`[buildHomeAwayCeilingRates] Groups: ${totalGroups}, small sample (<${MIN_SAMPLE}): ${smallSample}`);
+  Logger.log(`[buildHomeAwayCeilingRates] Position baselines: ${JSON.stringify(posBaselines)}`);
+
+  return { getRateForEnvPos, posBaselines };
+}
+
+function updateScheduleWithHomeAwayCeilingRates() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName("Schedule_Enriched");
+  if (!sheet) throw new Error("Schedule_Enriched not found. Run Process Schedule first.");
+
+  ss.toast("Building home/away ceiling rates from performance data…", "Module 6 Fix", -1);
+
+  const { getRateForEnvPos } = buildHomeAwayCeilingRates();
+
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const envKeyIdx = headers.indexOf('environment_key');
+  if (envKeyIdx === -1) throw new Error("environment_key column not found in Schedule_Enriched.");
+
+  const NEW_COLS = [
+    'home_qb_ceiling_rate', 'away_qb_ceiling_rate',
+    'home_rb_ceiling_rate', 'away_rb_ceiling_rate',
+    'home_wr_ceiling_rate', 'away_wr_ceiling_rate',
+    'home_te_ceiling_rate', 'away_te_ceiling_rate'
+  ];
+
+  // Find or create columns; track 1-based column numbers
+  const colNumbers = {};
+  NEW_COLS.forEach(col => {
+    const idx = headers.indexOf(col);
+    if (idx !== -1) {
+      colNumbers[col] = idx + 1;
+    } else {
+      const nextCol = sheet.getLastColumn() + 1;
+      sheet.getRange(1, nextCol).setValue(col);
+      colNumbers[col] = nextCol;
+      headers.push(col);
+    }
+  });
+
+  // Build column data
+  const numDataRows = data.length - 1;
+  const colData = {};
+  NEW_COLS.forEach(col => { colData[col] = []; });
+
+  for (let i = 1; i < data.length; i++) {
+    const homeEnvKey = String(data[i][envKeyIdx]).trim();
+    const awayEnvKey = homeEnvKey.replace('_Home_', '_Away_');
+
+    colData['home_qb_ceiling_rate'].push([getRateForEnvPos(homeEnvKey, 'QB')]);
+    colData['away_qb_ceiling_rate'].push([getRateForEnvPos(awayEnvKey, 'QB')]);
+    colData['home_rb_ceiling_rate'].push([getRateForEnvPos(homeEnvKey, 'RB')]);
+    colData['away_rb_ceiling_rate'].push([getRateForEnvPos(awayEnvKey, 'RB')]);
+    colData['home_wr_ceiling_rate'].push([getRateForEnvPos(homeEnvKey, 'WR')]);
+    colData['away_wr_ceiling_rate'].push([getRateForEnvPos(awayEnvKey, 'WR')]);
+    colData['home_te_ceiling_rate'].push([getRateForEnvPos(homeEnvKey, 'TE')]);
+    colData['away_te_ceiling_rate'].push([getRateForEnvPos(awayEnvKey, 'TE')]);
+  }
+
+  // Write in batch
+  NEW_COLS.forEach(col => {
+    sheet.getRange(2, colNumbers[col], numDataRows, 1).setValues(colData[col]);
+  });
+
+  sheet.autoResizeColumns(1, sheet.getLastColumn());
+
+  // Validation log: dome home vs away for a sample key
+  const sampleHome = 'Dome_Home_Day_Mid';
+  const sampleAway = 'Dome_Away_Day_Mid';
+  ['QB', 'RB', 'WR', 'TE'].forEach(pos => {
+    const h = getRateForEnvPos(sampleHome, pos);
+    const a = getRateForEnvPos(sampleAway, pos);
+    const diff = a > 0 ? ((h - a) / a * 100).toFixed(1) : 'N/A';
+    Logger.log(`[Validation] ${pos}: Home=${h}, Away=${a}, Dome advantage=${diff}%`);
+  });
+
+  Logger.log(`[updateScheduleWithHomeAwayCeilingRates] ${numDataRows} games updated with 8 new columns.`);
+  ss.toast("Done! Home/Away ceiling rates added to Schedule_Enriched.", "Module 6 Fix", 5);
 }
