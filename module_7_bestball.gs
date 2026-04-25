@@ -609,6 +609,8 @@ function testStackTargets() {
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Best Ball')
+    .addItem('Process Schedule', 'buildTeamScheduleSummary')
+    .addSeparator()
     .addItem('Build All Sheets', 'runAllSheets')
     .addToUi();
 }
