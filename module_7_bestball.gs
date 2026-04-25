@@ -429,59 +429,77 @@ function buildStackTargets(byPosition) {
 
   const byTeam = {};
   allPlayers.forEach(p => {
-    if (!byTeam[p.team]) byTeam[p.team] = [];
-    byTeam[p.team].push(p);
+    if (!byTeam[p.team]) byTeam[p.team] = { QB: [], RB: [], WR: [], TE: [] };
+    if (byTeam[p.team][p.position]) byTeam[p.team][p.position].push(p);
   });
 
-  const stacks = [];
+  for (const team of Object.keys(byTeam)) {
+    for (const pos of ['QB', 'RB', 'WR', 'TE']) {
+      byTeam[team][pos].sort((a, b) => b.value_score - a.value_score);
+    }
+  }
 
-  for (const [team, players] of Object.entries(byTeam)) {
-    const qbs = players.filter(p => p.position === 'QB').sort((a, b) => b.value_score - a.value_score);
-    const passCatchers = players
-      .filter(p => p.position === 'WR' || p.position === 'TE')
-      .sort((a, b) => b.value_score - a.value_score);
-
-    if (!qbs[0] || passCatchers.length < 2) continue;
-
-    const qb  = qbs[0];
-    const pc1 = passCatchers[0];
-    const pc2 = passCatchers[1];
-
-    const sharedScheduleQuality = Math.round((qb.schedule_quality + pc1.schedule_quality + pc2.schedule_quality) / 3);
-    const totalCost = qb.adp + pc1.adp + pc2.adp;
+  function makeStack(team, qb, p1, p2) {
+    if (!qb || !p1 || !p2) return null;
+    if (qb.adp >= 200 || p1.adp >= 200 || p2.adp >= 200) return null;
+    const sharedScheduleQuality = Math.round((qb.schedule_quality + p1.schedule_quality + p2.schedule_quality) / 3);
+    const totalCost = qb.adp + p1.adp + p2.adp;
     const efficiency = Math.round((sharedScheduleQuality / totalCost) * 100) / 100;
     const grade = computeStackEfficiencyGrade(efficiency);
-    const strategy = computeStackDraftStrategy(grade);
-
-    // Optional 4th: best remaining player by value_score
-    const coreNames = new Set([qb.player_name, pc1.player_name, pc2.player_name]);
-    const fourth = players
-      .filter(p => !coreNames.has(p.player_name))
-      .sort((a, b) => b.value_score - a.value_score)[0] || null;
-
-    stacks.push({
+    return {
       team,
       qb_name: qb.player_name,
       qb_adp: qb.adp,
-      pc1_name: pc1.player_name,
-      pc1_position: pc1.position,
-      pc1_adp: pc1.adp,
-      pc2_name: pc2.player_name,
-      pc2_position: pc2.position,
-      pc2_adp: pc2.adp,
+      pc1_name: p1.player_name,
+      pc1_position: p1.position,
+      pc1_adp: p1.adp,
+      pc2_name: p2.player_name,
+      pc2_position: p2.position,
+      pc2_adp: p2.adp,
       total_stack_cost: Math.round(totalCost * 10) / 10,
       shared_schedule_quality: sharedScheduleQuality,
       stack_efficiency: efficiency,
       stack_grade: grade,
-      draft_strategy: strategy,
-      optional_4th_name: fourth ? fourth.player_name : '',
-      optional_4th_position: fourth ? fourth.position : '',
-      optional_4th_adp: fourth ? fourth.adp : ''
-    });
+      draft_strategy: computeStackDraftStrategy(grade)
+    };
+  }
+
+  const stacks = [];
+
+  for (const [team, pos] of Object.entries(byTeam)) {
+    const qb = pos.QB[0];
+    if (!qb) continue;
+
+    const wrs = pos.WR.slice(0, 3);
+    const tes = pos.TE.slice(0, 1);
+    const rbs = pos.RB.slice(0, 2);
+    const passers = [...wrs, ...tes];
+
+    // QB + 2 pass catchers (all pairs from WR1/WR2/WR3/TE1)
+    for (let i = 0; i < passers.length; i++) {
+      for (let j = i + 1; j < passers.length; j++) {
+        const s = makeStack(team, qb, passers[i], passers[j]);
+        if (s) stacks.push(s);
+      }
+    }
+
+    // QB + RB + pass catcher
+    for (const rb of rbs) {
+      for (const pc of passers) {
+        const s = makeStack(team, qb, rb, pc);
+        if (s) stacks.push(s);
+      }
+    }
+
+    // QB + RB1 + RB2
+    if (rbs[0] && rbs[1]) {
+      const s = makeStack(team, qb, rbs[0], rbs[1]);
+      if (s) stacks.push(s);
+    }
   }
 
   stacks.sort((a, b) => b.stack_efficiency - a.stack_efficiency);
-  return stacks.slice(0, 25);
+  return stacks;
 }
 
 function writeStackTargets() {
@@ -502,8 +520,7 @@ function writeStackTargets() {
     'pc1_name', 'pc1_position', 'pc1_adp',
     'pc2_name', 'pc2_position', 'pc2_adp',
     'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency',
-    'stack_grade', 'draft_strategy',
-    'optional_4th_name', 'optional_4th_position', 'optional_4th_adp'
+    'stack_grade', 'draft_strategy'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -518,8 +535,7 @@ function writeStackTargets() {
     s.pc1_name, s.pc1_position, s.pc1_adp,
     s.pc2_name, s.pc2_position, s.pc2_adp,
     s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency,
-    s.stack_grade, s.draft_strategy,
-    s.optional_4th_name, s.optional_4th_position, s.optional_4th_adp
+    s.stack_grade, s.draft_strategy
   ]);
 
   if (rows.length > 0) {
@@ -551,7 +567,7 @@ function testStackTargets() {
 
     Logger.log(
       'Stack_Targets Complete!\n' +
-      `${numStacks} stacks ranked by efficiency\n` +
+      `${numStacks} stacks ranked by efficiency (expected 200-400)\n` +
       `Top stack: ${data[1][2]} (${data[1][1]}) + ${data[1][4]} + ${data[1][7]}\n` +
       `Efficiency: ${data[1][12]}, Grade: ${data[1][13]}`
     );
@@ -1104,5 +1120,211 @@ function testTask2A() {
 
   } catch (error) {
     Logger.log("Error: " + error.message);
+  }
+}
+
+// ============================================================
+// TASK 4B: TEAM STACK RANKINGS
+// ============================================================
+
+function buildTeamStackRankings(stacks) {
+  const byTeam = {};
+  stacks.forEach(s => {
+    if (!byTeam[s.team]) byTeam[s.team] = [];
+    byTeam[s.team].push(s);
+  });
+
+  const rankings = [];
+
+  for (const [team, teamStacks] of Object.entries(byTeam)) {
+    const efficiencies = teamStacks.map(s => s.stack_efficiency);
+    const best_stack_eff  = Math.max(...efficiencies);
+    const avg_stack_eff   = Math.round((efficiencies.reduce((sum, e) => sum + e, 0) / efficiencies.length) * 100) / 100;
+    const viable_stacks   = teamStacks.length;
+    const a_plus_count    = teamStacks.filter(s => s.stack_efficiency >= 8.0).length;
+    const a_count         = teamStacks.filter(s => s.stack_efficiency >= 6.0 && s.stack_efficiency < 8.0).length;
+    const b_count         = teamStacks.filter(s => s.stack_efficiency >= 4.0 && s.stack_efficiency < 6.0).length;
+    const composite_score = Math.round(((best_stack_eff * 0.4) + (avg_stack_eff * 0.4) + (viable_stacks * 0.2)) * 100) / 100;
+
+    let team_grade;
+    if (composite_score >= 6.0)      team_grade = 'A+';
+    else if (composite_score >= 4.5) team_grade = 'A';
+    else if (composite_score >= 3.0) team_grade = 'B';
+    else if (composite_score >= 2.0) team_grade = 'C';
+    else                             team_grade = 'D';
+
+    const recommendationMap = {
+      'A+': 'Elite stacking team - multiple A+ combinations available',
+      'A':  'Strong stacking team - several high-quality options',
+      'B':  'Viable stacking team - good combinations available',
+      'C':  'Limited stacking team - fewer quality options',
+      'D':  'Weak stacking team - avoid building around this team'
+    };
+
+    rankings.push({
+      team,
+      best_stack_eff:  Math.round(best_stack_eff * 100) / 100,
+      avg_stack_eff,
+      viable_stacks,
+      a_plus_count,
+      a_count,
+      b_count,
+      composite_score,
+      team_grade,
+      recommendation: recommendationMap[team_grade]
+    });
+  }
+
+  rankings.sort((a, b) => b.composite_score - a.composite_score);
+  return rankings;
+}
+
+function writeTeamStackRankings() {
+  const rankings = buildPlayerValueRankings();
+  const stacks   = buildStackTargets(rankings);
+  const teamRankings = buildTeamStackRankings(stacks);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('Team_Stack_Rankings');
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet('Team_Stack_Rankings');
+  }
+
+  const headers = [
+    'rank', 'team', 'best_stack_eff', 'avg_stack_eff', 'viable_stacks',
+    'a_plus_count', 'a_count', 'b_count', 'composite_score', 'team_grade', 'recommendation'
+  ];
+
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight('bold')
+    .setBackground('#efefef');
+
+  const rows = teamRankings.map((t, i) => [
+    i + 1,
+    t.team,
+    t.best_stack_eff,
+    t.avg_stack_eff,
+    t.viable_stacks,
+    t.a_plus_count,
+    t.a_count,
+    t.b_count,
+    t.composite_score,
+    t.team_grade,
+    t.recommendation
+  ]);
+
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+
+    const gradeColors = { 'A+': '#00cc44', 'A': '#90ee90', 'B': '#ffffcc', 'C': '#ffcccb', 'D': '#ffcccb' };
+    rows.forEach((row, i) => {
+      const color = gradeColors[row[9]];
+      if (color) sheet.getRange(i + 2, 10).setBackground(color);
+    });
+  }
+
+  sheet.autoResizeColumns(1, headers.length);
+
+  Logger.log(`Team_Stack_Rankings created: ${teamRankings.length} teams`);
+  return true;
+}
+
+function testTeamStackRankings() {
+  try {
+    writeTeamStackRankings();
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Team_Stack_Rankings');
+    if (!sheet) throw new Error('Team_Stack_Rankings sheet not created');
+
+    const data = sheet.getDataRange().getValues();
+    const numTeams = data.length - 1;
+
+    Logger.log(
+      'Team_Stack_Rankings Complete!\n' +
+      `${numTeams} teams ranked (expected 32)\n` +
+      `Top team: ${data[1][1]} (composite ${data[1][8]}, grade ${data[1][9]})\n` +
+      `A+ stacks: ${data[1][5]}, viable stacks: ${data[1][4]}`
+    );
+
+  } catch (error) {
+    Logger.log('Error: ' + error.message);
+  }
+}
+
+// ============================================================
+// TASK 4B: GAME SCORES REFERENCE
+// ============================================================
+
+function buildGameScores(scheduleData) {
+  return scheduleData.map(game => ({
+    game_id:    game.game_id,
+    week:       game.week,
+    matchup:    `${game.away_team} vs ${game.home_team}`,
+    venue_type: game.venue_type,
+    qb_score:   gradeToScore(game.qb_grade),
+    rb_score:   gradeToScore(game.rb_grade),
+    wr_score:   gradeToScore(game.wr_grade),
+    te_score:   gradeToScore(game.te_grade)
+  })).sort((a, b) => a.week !== b.week ? a.week - b.week : String(a.game_id).localeCompare(String(b.game_id)));
+}
+
+function writeGameScores() {
+  const scheduleData = getScheduleData();
+  const gameScores   = buildGameScores(scheduleData);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('Game_Scores');
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet('Game_Scores');
+  }
+
+  const headers = ['game_id', 'week', 'matchup', 'venue_type', 'qb_score', 'rb_score', 'wr_score', 'te_score'];
+
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight('bold')
+    .setBackground('#efefef');
+
+  const rows = gameScores.map(g => [
+    g.game_id, g.week, g.matchup, g.venue_type,
+    g.qb_score, g.rb_score, g.wr_score, g.te_score
+  ]);
+
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+
+  sheet.autoResizeColumns(1, headers.length);
+  sheet.setFrozenRows(1);
+
+  Logger.log(`Game_Scores created: ${gameScores.length} games`);
+  return true;
+}
+
+function testGameScores() {
+  try {
+    writeGameScores();
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Game_Scores');
+    if (!sheet) throw new Error('Game_Scores sheet not created');
+
+    const data = sheet.getDataRange().getValues();
+    const numGames = data.length - 1;
+
+    Logger.log(
+      'Game_Scores Complete!\n' +
+      `${numGames} games (expected 272)\n` +
+      `Sample: ${data[1][2]} - QB ${data[1][4]}, RB ${data[1][5]}, WR ${data[1][6]}, TE ${data[1][7]}`
+    );
+
+  } catch (error) {
+    Logger.log('Error: ' + error.message);
   }
 }
