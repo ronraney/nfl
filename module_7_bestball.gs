@@ -135,3 +135,101 @@ function testTask1A() {
     Logger.log("Error: " + error.message);
   }
 }
+
+// ============================================================
+// TASK 2A: EXTRACT TEAM SCHEDULES
+// ============================================================
+
+function getAllTeams() {
+  return [
+    'ARI', 'ATL', 'BAL', 'BUF', 'CAR', 'CHI', 'CIN', 'CLE',
+    'DAL', 'DEN', 'DET', 'GB', 'HOU', 'IND', 'JAC', 'KC',
+    'LV', 'LAC', 'LAR', 'MIA', 'MIN', 'NE', 'NO', 'NYG',
+    'NYJ', 'PHI', 'PIT', 'SF', 'SEA', 'TB', 'TEN', 'WAS'
+  ];
+}
+
+function extractTeamSchedule(team, scheduleData) {
+  const teamGames = [];
+
+  for (const game of scheduleData) {
+    let isTeamInGame = false;
+    let location = null;
+
+    if (game.home_team === team) {
+      isTeamInGame = true;
+      location = 'HOME';
+    } else if (game.away_team === team) {
+      isTeamInGame = true;
+      location = 'AWAY';
+    }
+
+    if (isTeamInGame) {
+      teamGames.push({
+        week: game.week,
+        opponent: location === 'HOME' ? game.away_team : game.home_team,
+        location: location,
+        venue_type: game.venue_type,
+        is_primetime: game.is_primetime,
+        is_division: game.is_division,
+        qb_grade: game.qb_grade,
+        qb_ceiling_rate: game.qb_ceiling_rate,
+        rb_grade: game.rb_grade,
+        rb_ceiling_rate: game.rb_ceiling_rate,
+        wr_grade: game.wr_grade,
+        wr_ceiling_rate: game.wr_ceiling_rate,
+        te_grade: game.te_grade,
+        te_ceiling_rate: game.te_ceiling_rate,
+        dst_grade: game.dst_grade,
+        dst_ceiling_rate: game.dst_ceiling_rate,
+        environment_key: game.environment_key,
+        environment_rate: game.environment_rate,
+        game_type: game.game_type
+      });
+    }
+  }
+
+  teamGames.sort((a, b) => a.week - b.week);
+
+  return teamGames;
+}
+
+function testTask2A() {
+  try {
+    const scheduleData = getScheduleData();
+    const teams = getAllTeams();
+
+    Logger.log(`Teams loaded: ${teams.length}`);
+
+    const larSchedule = extractTeamSchedule('LAR', scheduleData);
+
+    if (larSchedule.length !== 17) {
+      throw new Error(`Expected 17 games for LAR, got ${larSchedule.length}`);
+    }
+
+    Logger.log("LAR Schedule (first 3 games):");
+    larSchedule.slice(0, 3).forEach(game => {
+      Logger.log(`Week ${game.week}: vs ${game.opponent} (${game.location})`);
+      Logger.log(`  QB: ${game.qb_grade}, WR: ${game.wr_grade}, RB: ${game.rb_grade}`);
+    });
+
+    let totalGames = 0;
+    teams.forEach(team => {
+      const schedule = extractTeamSchedule(team, scheduleData);
+      totalGames += schedule.length;
+    });
+
+    if (totalGames !== 544) {
+      throw new Error(`Expected 544 total games, got ${totalGames}`);
+    }
+
+    Logger.log(
+      "Task 2A Complete!\n" +
+      `LAR schedule: ${larSchedule.length} games\n` +
+      `Total across all teams: ${totalGames} games`
+    );
+
+  } catch (error) {
+    Logger.log("Error: " + error.message);
+  }
+}
