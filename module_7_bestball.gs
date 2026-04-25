@@ -1129,6 +1129,7 @@ function testTask2A() {
 
 function buildTeamStackRankings(stacks) {
   const byTeam = {};
+  getAllTeams().forEach(t => { byTeam[t] = []; });
   stacks.forEach(s => {
     if (!byTeam[s.team]) byTeam[s.team] = [];
     byTeam[s.team].push(s);
@@ -1138,8 +1139,10 @@ function buildTeamStackRankings(stacks) {
 
   for (const [team, teamStacks] of Object.entries(byTeam)) {
     const efficiencies = teamStacks.map(s => s.stack_efficiency);
-    const best_stack_eff  = Math.max(...efficiencies);
-    const avg_stack_eff   = Math.round((efficiencies.reduce((sum, e) => sum + e, 0) / efficiencies.length) * 100) / 100;
+    const best_stack_eff  = efficiencies.length > 0 ? Math.max(...efficiencies) : 0;
+    const avg_stack_eff   = efficiencies.length > 0
+      ? Math.round((efficiencies.reduce((sum, e) => sum + e, 0) / efficiencies.length) * 100) / 100
+      : 0;
     const viable_stacks   = teamStacks.length;
     const a_plus_count    = teamStacks.filter(s => s.stack_efficiency >= 8.0).length;
     const a_count         = teamStacks.filter(s => s.stack_efficiency >= 6.0 && s.stack_efficiency < 8.0).length;
