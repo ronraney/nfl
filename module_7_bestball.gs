@@ -397,6 +397,165 @@ function testTask3C() {
 }
 
 // ============================================================
+// STACK TARGETS
+// ============================================================
+
+function computeStackEfficiencyGrade(efficiency) {
+  if (efficiency >= 0.050) return 'A+';
+  if (efficiency >= 0.035) return 'A';
+  if (efficiency >= 0.025) return 'B';
+  if (efficiency >= 0.015) return 'C';
+  return 'D';
+}
+
+function computeStackDraftStrategy(grade) {
+  if (grade === 'A+') return 'Priority target - build entire draft around this';
+  if (grade === 'A')  return 'Strong target - complete if pieces available';
+  if (grade === 'B')  return 'Opportunistic - take if falls to value';
+  return 'Avoid - poor shared game overlap';
+}
+
+function buildStackTargets(byPosition) {
+  const allPlayers = Object.values(byPosition).flat();
+
+  const byTeam = {};
+  allPlayers.forEach(p => {
+    if (!byTeam[p.team]) byTeam[p.team] = [];
+    byTeam[p.team].push(p);
+  });
+
+  const stacks = [];
+
+  for (const [team, players] of Object.entries(byTeam)) {
+    const qbs = players.filter(p => p.position === 'QB').sort((a, b) => b.value_score - a.value_score);
+    const passCatchers = players
+      .filter(p => p.position === 'WR' || p.position === 'TE')
+      .sort((a, b) => b.value_score - a.value_score);
+
+    if (!qbs[0] || passCatchers.length < 2) continue;
+
+    const qb  = qbs[0];
+    const pc1 = passCatchers[0];
+    const pc2 = passCatchers[1];
+
+    // All teammates share the same schedule → shared elite games = team's count
+    const sharedEliteGames = qb.elite_games_count;
+    if (sharedEliteGames < 2) continue;
+
+    const totalCost = qb.adp + pc1.adp + pc2.adp;
+    const efficiency = sharedEliteGames / totalCost;
+    const grade = computeStackEfficiencyGrade(efficiency);
+    const strategy = computeStackDraftStrategy(grade);
+
+    // Optional 4th: best remaining player by value_score
+    const coreNames = new Set([qb.player_name, pc1.player_name, pc2.player_name]);
+    const fourth = players
+      .filter(p => !coreNames.has(p.player_name))
+      .sort((a, b) => b.value_score - a.value_score)[0] || null;
+
+    stacks.push({
+      team,
+      qb_name: qb.player_name,
+      qb_adp: qb.adp,
+      pc1_name: pc1.player_name,
+      pc1_position: pc1.position,
+      pc1_adp: pc1.adp,
+      pc2_name: pc2.player_name,
+      pc2_position: pc2.position,
+      pc2_adp: pc2.adp,
+      total_stack_cost: Math.round(totalCost * 10) / 10,
+      shared_elite_games: sharedEliteGames,
+      stack_efficiency: Math.round(efficiency * 1000) / 1000,
+      stack_grade: grade,
+      draft_strategy: strategy,
+      optional_4th_name: fourth ? fourth.player_name : '',
+      optional_4th_position: fourth ? fourth.position : '',
+      optional_4th_adp: fourth ? fourth.adp : ''
+    });
+  }
+
+  stacks.sort((a, b) => b.stack_efficiency - a.stack_efficiency);
+  return stacks.slice(0, 25);
+}
+
+function writeStackTargets() {
+  const rankings = buildPlayerValueRankings();
+  const stacks   = buildStackTargets(rankings);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('Stack_Targets');
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet('Stack_Targets');
+  }
+
+  const headers = [
+    'rank', 'team',
+    'qb_name', 'qb_adp',
+    'pc1_name', 'pc1_position', 'pc1_adp',
+    'pc2_name', 'pc2_position', 'pc2_adp',
+    'total_stack_cost', 'shared_elite_games', 'stack_efficiency',
+    'stack_grade', 'draft_strategy',
+    'optional_4th_name', 'optional_4th_position', 'optional_4th_adp'
+  ];
+
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight('bold')
+    .setBackground('#efefef');
+
+  const rows = stacks.map((s, i) => [
+    i + 1,
+    s.team,
+    s.qb_name, s.qb_adp,
+    s.pc1_name, s.pc1_position, s.pc1_adp,
+    s.pc2_name, s.pc2_position, s.pc2_adp,
+    s.total_stack_cost, s.shared_elite_games, s.stack_efficiency,
+    s.stack_grade, s.draft_strategy,
+    s.optional_4th_name, s.optional_4th_position, s.optional_4th_adp
+  ]);
+
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+
+    const gradeColors = { 'A+': '#00cc44', 'A': '#90ee90', 'B': '#ffffcc', 'C': '#ffcccb', 'D': '#ffcccb' };
+    rows.forEach((row, i) => {
+      const color = gradeColors[row[13]];
+      if (color) sheet.getRange(i + 2, 14).setBackground(color);
+    });
+  }
+
+  sheet.autoResizeColumns(1, headers.length);
+
+  Logger.log(`Stack_Targets created: ${stacks.length} stacks`);
+  return true;
+}
+
+function testStackTargets() {
+  try {
+    writeStackTargets();
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName('Stack_Targets');
+    if (!sheet) throw new Error('Stack_Targets sheet not created');
+
+    const data = sheet.getDataRange().getValues();
+    const numStacks = data.length - 1;
+
+    Logger.log(
+      'Stack_Targets Complete!\n' +
+      `${numStacks} stacks ranked by efficiency\n` +
+      `Top stack: ${data[1][2]} (${data[1][1]}) + ${data[1][4]} + ${data[1][7]}\n` +
+      `Efficiency: ${data[1][12]}, Grade: ${data[1][13]}`
+    );
+
+  } catch (error) {
+    Logger.log('Error: ' + error.message);
+  }
+}
+
+// ============================================================
 // TASK 3B: CALCULATE VALUE RATIOS
 // ============================================================
 
