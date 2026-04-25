@@ -34,10 +34,26 @@ function getADPData() {
   const headers = data[0];
   const rows = data.slice(1);
 
+  // Normalize raw headers to internal field names
+  const headerMap = {
+    'Player': 'player_name',
+    'Team':   'team',
+    'POS':    'position',
+    'AVG':    'adp',
+    'Rank':   'rank',
+    'Bye':    'bye',
+    'BB10':        'bb10',
+    'RTSports':    'rtsports',
+    'Underdog':    'underdog',
+    'Drafters':    'drafters',
+    'DraftKings':  'draftkings'
+  };
+
   return rows.map(row => {
     const player = {};
     headers.forEach((header, i) => {
-      player[header] = row[i];
+      const key = headerMap[header] || header;
+      player[key] = row[i];
     });
     return player;
   }).filter(p => p.player_name && p.adp);
@@ -105,8 +121,8 @@ function testTask1A() {
     Logger.log("Sample player:");
     Logger.log(JSON.stringify(data.adpData[0], null, 2));
 
-    SpreadsheetApp.getUi().alert(
-      "Task 1A Complete!\n\n" +
+    Logger.log(
+      "Task 1A Complete!\n" +
       `Schedule: ${data.scheduleData.length} games\n` +
       `Players: ${data.adpData.length}\n` +
       `QB: ${data.positionCounts.QB}\n` +
@@ -116,7 +132,6 @@ function testTask1A() {
     );
 
   } catch (error) {
-    SpreadsheetApp.getUi().alert("Error: " + error.message);
-    Logger.log(error);
+    Logger.log("Error: " + error.message);
   }
 }
