@@ -171,7 +171,7 @@ function findStackableGames(scheduleData) {
 function findBestPlayer(team, position, rankings) {
   const teamPlayers = (rankings[position] || []).filter(p => p.team === team);
   if (teamPlayers.length === 0) return null;
-  teamPlayers.sort((a, b) => b.value_ratio - a.value_ratio);
+  teamPlayers.sort((a, b) => b.value_score - a.value_score);
   return teamPlayers[0];
 }
 
@@ -192,17 +192,18 @@ function buildStackRecommendation(game, rankings) {
 
   if (game.wr_grade === 'A+') {
     const homeWRs = (rankings.WR || []).filter(p => p.team === game.home_team);
-    homeWRs.sort((a, b) => b.value_ratio - a.value_ratio);
+    homeWRs.sort((a, b) => b.value_score - a.value_score);
     stack.players.push(...homeWRs.slice(0, 2));
   }
 
   const awayWRs = (rankings.WR || []).filter(p => p.team === game.away_team);
-  awayWRs.sort((a, b) => b.value_ratio - a.value_ratio);
+  awayWRs.sort((a, b) => b.value_score - a.value_score);
   if (awayWRs.length > 0) stack.players.push(awayWRs[0]);
 
   stack.total_adp = stack.players.reduce((sum, p) => sum + p.adp, 0);
   stack.total_elite_value = stack.players.reduce((sum, p) => sum + p.elite_game_value, 0);
-  stack.value_score = stack.players.length > 0 ? stack.total_elite_value / stack.total_adp : 0;
+  // stack_efficiency is elite value per ADP dollar — a ratio for comparing stacks, not players
+  stack.stack_efficiency = stack.players.length > 0 ? stack.total_elite_value / stack.total_adp : 0;
 
   return stack;
 }
@@ -215,7 +216,7 @@ function generateStackBlueprint() {
   Logger.log(`Stackable games found: ${stackableGames.length}`);
 
   const stacks = stackableGames.map(game => buildStackRecommendation(game, rankings));
-  stacks.sort((a, b) => b.value_score - a.value_score);
+  stacks.sort((a, b) => b.stack_efficiency - a.stack_efficiency);
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName("Stack_Blueprint");
@@ -257,7 +258,7 @@ function generateStackBlueprint() {
       .setBackground('#efefef');
     currentRow++;
 
-    sheet.getRange(currentRow, 1).setValue(`Value Score: ${stack.value_score.toFixed(3)}`);
+    sheet.getRange(currentRow, 1).setValue(`Stack Efficiency: ${stack.stack_efficiency.toFixed(3)}`);
     currentRow += 2;
   });
 
@@ -274,7 +275,7 @@ function testTask4A() {
 
     Logger.log("Top 3 stacks by value:");
     stacks.slice(0, 3).forEach((s, i) => {
-      Logger.log(`${i+1}. Week ${s.week}: ${s.matchup} (${s.players.length} players, score ${s.value_score.toFixed(3)})`);
+      Logger.log(`${i+1}. Week ${s.week}: ${s.matchup} (${s.players.length} players, efficiency ${s.stack_efficiency.toFixed(3)})`);
       s.players.forEach(p => {
         Logger.log(`   ${p.player_name} (${p.position}, ADP ${p.adp})`);
       });
@@ -451,14 +452,14 @@ function testTask3B() {
   try {
     const rankings = buildPlayerValueRankings();
 
-    Logger.log("Top 5 QBs by value ratio:");
+    Logger.log("Top 5 QBs by value score:");
     rankings.QB.slice(0, 5).forEach((p, i) => {
-      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}): ${p.value_ratio.toFixed(3)} - ${p.value_class}`);
+      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}): score ${p.value_score} (sched ${p.schedule_percentile} - cost ${p.cost_percentile}) - ${p.value_class}`);
     });
 
-    Logger.log("Top 5 WRs by value ratio:");
+    Logger.log("Top 5 WRs by value score:");
     rankings.WR.slice(0, 5).forEach((p, i) => {
-      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}): ${p.value_ratio.toFixed(3)} - ${p.value_class}`);
+      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}): score ${p.value_score} (sched ${p.schedule_percentile} - cost ${p.cost_percentile}) - ${p.value_class}`);
     });
 
     const extremeCount = {
