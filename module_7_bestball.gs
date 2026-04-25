@@ -137,6 +137,101 @@ function testTask1A() {
 }
 
 // ============================================================
+// TASK 3B: CALCULATE VALUE RATIOS
+// ============================================================
+
+function calculateValueRatio(player) {
+  return {
+    ...player,
+    value_ratio: player.elite_game_value / player.adp,
+    games_per_round: player.a_plus_games / (player.adp / 12)
+  };
+}
+
+function classifyPlayerValue(valueRatio, position) {
+  const thresholds = {
+    QB: { extreme: 0.10, strong: 0.06, fair: 0.04, slight: 0.02 },
+    RB: { extreme: 0.08, strong: 0.05, fair: 0.03, slight: 0.015 },
+    WR: { extreme: 0.08, strong: 0.05, fair: 0.03, slight: 0.015 },
+    TE: { extreme: 0.10, strong: 0.06, fair: 0.04, slight: 0.02 }
+  };
+
+  const t = thresholds[position];
+
+  if (valueRatio >= t.extreme) return "EXTREME VALUE";
+  if (valueRatio >= t.strong)  return "STRONG VALUE";
+  if (valueRatio >= t.fair)    return "FAIR VALUE";
+  if (valueRatio >= t.slight)  return "SLIGHT REACH";
+  return "AVOID";
+}
+
+function generateRecommendation(valueClass, aPlusGames) {
+  if (valueClass === "EXTREME VALUE" && aPlusGames >= 6) return "PRIORITY TARGET - Must draft";
+  if (valueClass === "EXTREME VALUE")                    return "STRONG TARGET - Great value";
+  if (valueClass === "STRONG VALUE")                     return "GOOD VALUE - Solid pick";
+  if (valueClass === "FAIR VALUE")                       return "FAIR - Market priced";
+  if (valueClass === "SLIGHT REACH")                     return "REACH - Consider alternatives";
+  return "AVOID - Poor value";
+}
+
+function buildPlayerValueRankings() {
+  const mappedPlayers = buildPlayerScheduleMapping();
+
+  const rankedPlayers = mappedPlayers.map(player => {
+    const withRatio = calculateValueRatio(player);
+    const valueClass = classifyPlayerValue(withRatio.value_ratio, player.position);
+    const recommendation = generateRecommendation(valueClass, player.a_plus_games);
+
+    return { ...withRatio, value_class: valueClass, recommendation: recommendation };
+  });
+
+  const byPosition = { QB: [], RB: [], WR: [], TE: [] };
+
+  rankedPlayers.forEach(player => {
+    if (byPosition[player.position]) {
+      byPosition[player.position].push(player);
+    }
+  });
+
+  for (const pos of Object.keys(byPosition)) {
+    byPosition[pos].sort((a, b) => b.value_ratio - a.value_ratio);
+  }
+
+  return byPosition;
+}
+
+function testTask3B() {
+  try {
+    const rankings = buildPlayerValueRankings();
+
+    Logger.log("Top 5 QBs by value ratio:");
+    rankings.QB.slice(0, 5).forEach((p, i) => {
+      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}): ${p.value_ratio.toFixed(3)} - ${p.value_class}`);
+    });
+
+    Logger.log("Top 5 WRs by value ratio:");
+    rankings.WR.slice(0, 5).forEach((p, i) => {
+      Logger.log(`${i+1}. ${p.player_name} (ADP ${p.adp}): ${p.value_ratio.toFixed(3)} - ${p.value_class}`);
+    });
+
+    const extremeCount = {
+      QB: rankings.QB.filter(p => p.value_class === "EXTREME VALUE").length,
+      RB: rankings.RB.filter(p => p.value_class === "EXTREME VALUE").length,
+      WR: rankings.WR.filter(p => p.value_class === "EXTREME VALUE").length,
+      TE: rankings.TE.filter(p => p.value_class === "EXTREME VALUE").length
+    };
+
+    Logger.log(
+      "Task 3B Complete!\n" +
+      `EXTREME VALUE — QB: ${extremeCount.QB}, RB: ${extremeCount.RB}, WR: ${extremeCount.WR}, TE: ${extremeCount.TE}`
+    );
+
+  } catch (error) {
+    Logger.log("Error: " + error.message);
+  }
+}
+
+// ============================================================
 // TASK 3A: MAP PLAYERS TO TEAM DATA
 // ============================================================
 
