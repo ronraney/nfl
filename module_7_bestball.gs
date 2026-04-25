@@ -137,6 +137,131 @@ function testTask1A() {
 }
 
 // ============================================================
+// TASK 2B: AGGREGATE POSITION STATISTICS
+// ============================================================
+
+function countPositionGrades(teamSchedule, position) {
+  const gradeField = `${position.toLowerCase()}_grade`;
+  const grades = teamSchedule.map(game => game[gradeField]);
+
+  return {
+    total_games: grades.length,
+    a_plus: grades.filter(g => g === 'A+').length,
+    a: grades.filter(g => g === 'A').length,
+    b: grades.filter(g => g === 'B').length,
+    c: grades.filter(g => g === 'C').length,
+    d: grades.filter(g => g === 'D').length
+  };
+}
+
+function calculateEliteGameValue(gradeCounts) {
+  return (
+    (gradeCounts.a_plus * 1.0) +
+    (gradeCounts.a     * 0.6) +
+    (gradeCounts.b     * 0.3) +
+    (gradeCounts.c     * 0.1) +
+    (gradeCounts.d     * 0.0)
+  );
+}
+
+function generateTeamPositionSummary(team, teamSchedule) {
+  const positions = ['QB', 'RB', 'WR', 'TE', 'DST'];
+  const summary = [];
+
+  for (const position of positions) {
+    const gradeCounts = countPositionGrades(teamSchedule, position);
+    const eliteValue = calculateEliteGameValue(gradeCounts);
+
+    summary.push({
+      team: team,
+      position: position,
+      total_games: gradeCounts.total_games,
+      a_plus_games: gradeCounts.a_plus,
+      a_games: gradeCounts.a,
+      b_games: gradeCounts.b,
+      c_games: gradeCounts.c,
+      d_games: gradeCounts.d,
+      elite_game_value: Math.round(eliteValue * 10) / 10
+    });
+  }
+
+  return summary;
+}
+
+function buildTeamScheduleSummary() {
+  const scheduleData = getScheduleData();
+  const teams = getAllTeams();
+  const allSummaries = [];
+
+  for (const team of teams) {
+    const teamSchedule = extractTeamSchedule(team, scheduleData);
+    const teamSummary = generateTeamPositionSummary(team, teamSchedule);
+    allSummaries.push(...teamSummary);
+  }
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("Team_Schedule_Summary");
+
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet("Team_Schedule_Summary");
+  }
+
+  const headers = [
+    'team', 'position', 'total_games', 'a_plus_games', 'a_games',
+    'b_games', 'c_games', 'd_games', 'elite_game_value'
+  ];
+
+  sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+
+  const rows = allSummaries.map(s => [
+    s.team, s.position, s.total_games, s.a_plus_games, s.a_games,
+    s.b_games, s.c_games, s.d_games, s.elite_game_value
+  ]);
+
+  sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  sheet.autoResizeColumns(1, headers.length);
+  sheet.setFrozenRows(1);
+
+  Logger.log(`Team_Schedule_Summary created: ${allSummaries.length} rows`);
+
+  return allSummaries;
+}
+
+function testTask2B() {
+  try {
+    const summaries = buildTeamScheduleSummary();
+
+    if (summaries.length !== 160) {
+      throw new Error(`Expected 160 rows, got ${summaries.length}`);
+    }
+
+    const larSummaries = summaries.filter(s => s.team === 'LAR');
+    Logger.log("LAR Position Summaries:");
+    larSummaries.forEach(s => {
+      Logger.log(`${s.position}: A+=${s.a_plus_games}, A=${s.a_games}, Value=${s.elite_game_value}`);
+    });
+
+    const qbSummaries = summaries.filter(s => s.position === 'QB');
+    qbSummaries.sort((a, b) => b.a_plus_games - a.a_plus_games);
+    Logger.log("Top 3 teams for QB A+ games:");
+    qbSummaries.slice(0, 3).forEach(s => {
+      Logger.log(`${s.team}: ${s.a_plus_games} A+ games`);
+    });
+
+    Logger.log(
+      "Task 2B Complete!\n" +
+      `Team_Schedule_Summary created\n` +
+      `Rows: ${summaries.length} (32 teams × 5 positions)`
+    );
+
+  } catch (error) {
+    Logger.log("Error: " + error.message);
+  }
+}
+
+// ============================================================
 // TASK 2A: EXTRACT TEAM SCHEDULES
 // ============================================================
 
