@@ -409,6 +409,31 @@ function gradeToScore(grade) {
   return 20;
 }
 
+function buildCeilingRatePercentiles(scheduleData) {
+  const posFields = {
+    QB: 'qb_ceiling_rate',
+    RB: 'rb_ceiling_rate',
+    WR: 'wr_ceiling_rate',
+    TE: 'te_ceiling_rate'
+  };
+  const n = scheduleData.length;
+  const percentiles = {};
+
+  for (const [pos, field] of Object.entries(posFields)) {
+    const sorted = scheduleData
+      .map(g => ({ game_id: g.game_id, rate: parseFloat(g[field]) || 0 }))
+      .sort((a, b) => a.rate - b.rate);
+
+    const scoreMap = {};
+    sorted.forEach((item, rank) => {
+      scoreMap[item.game_id] = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
+    });
+    percentiles[pos] = scoreMap;
+  }
+
+  return percentiles;
+}
+
 function computeStackEfficiencyGrade(efficiency) {
   if (efficiency >= 8.0) return 'A+';
   if (efficiency >= 6.0) return 'A';
@@ -607,16 +632,14 @@ function computeStackStrategy(grade, role) {
   return 'Talent only, low stack value';
 }
 
-function enrichWithStackData(byPosition, scheduleData) {
-  const posGradeField = { QB: 'qb_grade', RB: 'rb_grade', WR: 'wr_grade', TE: 'te_grade' };
-
+function enrichWithStackData(byPosition, scheduleData, percentiles) {
   const allPlayers = Object.values(byPosition).flat();
 
-  // schedule_quality, elite_games_count, stack_grade per player
+  // schedule_quality, elite_games_count, stack_grade per player using ceiling_rate percentiles
   allPlayers.forEach(p => {
-    const gradeField = posGradeField[p.position];
-    const teamGames  = scheduleData.filter(g => g.home_team === p.team || g.away_team === p.team);
-    const scores     = teamGames.map(g => gradeToScore(g[gradeField]));
+    const posPercentiles = percentiles[p.position];
+    const teamGames = scheduleData.filter(g => g.home_team === p.team || g.away_team === p.team);
+    const scores    = teamGames.map(g => posPercentiles[g.game_id] || 0);
     p.schedule_quality  = scores.reduce((sum, s) => sum + s, 0);
     p.elite_games_count = scores.filter(s => s >= 70).length;
     p.stack_grade = computeStackGrade(p.elite_games_count, p.position);
@@ -740,7 +763,8 @@ function buildPlayerValueRankings() {
     Logger.log(`${pos}: ${n} players, value_score range ${players[n-1].value_score} to ${players[0].value_score}`);
   }
 
-  enrichWithStackData(byPosition, scheduleData);
+  const percentiles = buildCeilingRatePercentiles(scheduleData);
+  enrichWithStackData(byPosition, scheduleData, percentiles);
 
   return byPosition;
 }
@@ -1263,15 +1287,16 @@ function testTeamStackRankings() {
 // ============================================================
 
 function buildGameScores(scheduleData) {
+  const percentiles = buildCeilingRatePercentiles(scheduleData);
   return scheduleData.map(game => ({
     game_id:    game.game_id,
     week:       game.week,
     matchup:    `${game.away_team} vs ${game.home_team}`,
     venue_type: game.venue_type,
-    qb_score:   gradeToScore(game.qb_grade),
-    rb_score:   gradeToScore(game.rb_grade),
-    wr_score:   gradeToScore(game.wr_grade),
-    te_score:   gradeToScore(game.te_grade)
+    qb_score:   percentiles.QB[game.game_id] || 0,
+    rb_score:   percentiles.RB[game.game_id] || 0,
+    wr_score:   percentiles.WR[game.game_id] || 0,
+    te_score:   percentiles.TE[game.game_id] || 0
   })).sort((a, b) => a.week !== b.week ? a.week - b.week : String(a.game_id).localeCompare(String(b.game_id)));
 }
 
