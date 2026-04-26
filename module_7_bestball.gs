@@ -411,27 +411,38 @@ function gradeToScore(grade) {
 
 function buildCeilingRatePercentiles(scheduleData) {
   const posFields = {
-    QB: 'qb_ceiling_rate',
-    RB: 'rb_ceiling_rate',
-    WR: 'wr_ceiling_rate',
-    TE: 'te_ceiling_rate'
+    QB: { home: 'home_qb_ceiling_rate', away: 'away_qb_ceiling_rate' },
+    RB: { home: 'home_rb_ceiling_rate', away: 'away_rb_ceiling_rate' },
+    WR: { home: 'home_wr_ceiling_rate', away: 'away_wr_ceiling_rate' },
+    TE: { home: 'home_te_ceiling_rate', away: 'away_te_ceiling_rate' }
   };
   const n = scheduleData.length;
-  const percentiles = {};
+  const homePercentiles = {};
+  const awayPercentiles = {};
 
-  for (const [pos, field] of Object.entries(posFields)) {
-    const sorted = scheduleData
-      .map(g => ({ game_id: g.game_id, rate: parseFloat(g[field]) || 0 }))
+  for (const [pos, fields] of Object.entries(posFields)) {
+    // Rank all 272 home rates independently
+    const homeSorted = scheduleData
+      .map(g => ({ game_id: g.game_id, rate: parseFloat(g[fields.home]) || 0 }))
       .sort((a, b) => a.rate - b.rate);
-
-    const scoreMap = {};
-    sorted.forEach((item, rank) => {
-      scoreMap[item.game_id] = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
+    const homeMap = {};
+    homeSorted.forEach((item, rank) => {
+      homeMap[item.game_id] = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
     });
-    percentiles[pos] = scoreMap;
+    homePercentiles[pos] = homeMap;
+
+    // Rank all 272 away rates independently
+    const awaySorted = scheduleData
+      .map(g => ({ game_id: g.game_id, rate: parseFloat(g[fields.away]) || 0 }))
+      .sort((a, b) => a.rate - b.rate);
+    const awayMap = {};
+    awaySorted.forEach((item, rank) => {
+      awayMap[item.game_id] = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
+    });
+    awayPercentiles[pos] = awayMap;
   }
 
-  return percentiles;
+  return { homePercentiles, awayPercentiles };
 }
 
 function computeStackEfficiencyGrade(efficiency) {
@@ -633,6 +644,7 @@ function runAllSheets() {
   writeStackTargets();          // Stack_Targets
   writeTeamStackRankings();     // Team_Stack_Rankings
   writeGameScores();            // Game_Scores
+  writeDraftStrategyTiers();    // Draft_Strategy_Tiers
 
   ss.toast('Done!', 'Best Ball', 5);
   Logger.log('runAllSheets complete');
@@ -669,13 +681,19 @@ function computeStackStrategy(grade, role) {
 }
 
 function enrichWithStackData(byPosition, scheduleData, percentiles) {
+  const { homePercentiles, awayPercentiles } = percentiles;
   const allPlayers = Object.values(byPosition).flat();
 
-  // schedule_quality, elite_games_count, stack_grade per player using ceiling_rate percentiles
+  // schedule_quality and elite_games_count use the correct home/away score per game
   allPlayers.forEach(p => {
-    const posPercentiles = percentiles[p.position];
+    const pos = p.position;
     const teamGames = scheduleData.filter(g => g.home_team === p.team || g.away_team === p.team);
-    const scores    = teamGames.map(g => posPercentiles[g.game_id] || 0);
+    const scores = teamGames.map(g => {
+      const isHome = g.home_team === p.team;
+      return isHome
+        ? (homePercentiles[pos][g.game_id] || 0)
+        : (awayPercentiles[pos][g.game_id] || 0);
+    });
     p.schedule_quality  = scores.reduce((sum, s) => sum + s, 0);
     p.elite_games_count = scores.filter(s => s >= 70).length;
     p.stack_grade = computeStackGrade(p.elite_games_count, p.position);
@@ -799,7 +817,7 @@ function buildPlayerValueRankings() {
     Logger.log(`${pos}: ${n} players, value_score range ${players[n-1].value_score} to ${players[0].value_score}`);
   }
 
-  const percentiles = buildCeilingRatePercentiles(scheduleData);
+  const percentiles = buildCeilingRatePercentiles(scheduleData); // { homePercentiles, awayPercentiles }
   enrichWithStackData(byPosition, scheduleData, percentiles);
 
   return byPosition;
@@ -1323,17 +1341,44 @@ function testTeamStackRankings() {
 // ============================================================
 
 function buildGameScores(scheduleData) {
-  const percentiles = buildCeilingRatePercentiles(scheduleData);
-  return scheduleData.map(game => ({
-    game_id:    game.game_id,
-    week:       game.week,
-    matchup:    `${game.away_team} vs ${game.home_team}`,
-    venue_type: game.venue_type,
-    qb_score:   percentiles.QB[game.game_id] || 0,
-    rb_score:   percentiles.RB[game.game_id] || 0,
-    wr_score:   percentiles.WR[game.game_id] || 0,
-    te_score:   percentiles.TE[game.game_id] || 0
-  })).sort((a, b) => a.week !== b.week ? a.week - b.week : String(a.game_id).localeCompare(String(b.game_id)));
+  const { homePercentiles, awayPercentiles } = buildCeilingRatePercentiles(scheduleData);
+  const rows = [];
+
+  scheduleData.forEach(game => {
+    const matchup = `${game.away_team} @ ${game.home_team}`;
+
+    // Home team row
+    rows.push({
+      week:       game.week,
+      game_id:    game.game_id,
+      matchup:    matchup,
+      team:       game.home_team,
+      home_away:  'Home',
+      venue_type: game.venue_type,
+      qb_score:   homePercentiles.QB[game.game_id] || 0,
+      rb_score:   homePercentiles.RB[game.game_id] || 0,
+      wr_score:   homePercentiles.WR[game.game_id] || 0,
+      te_score:   homePercentiles.TE[game.game_id] || 0
+    });
+
+    // Away team row
+    rows.push({
+      week:       game.week,
+      game_id:    game.game_id,
+      matchup:    matchup,
+      team:       game.away_team,
+      home_away:  'Away',
+      venue_type: game.venue_type,
+      qb_score:   awayPercentiles.QB[game.game_id] || 0,
+      rb_score:   awayPercentiles.RB[game.game_id] || 0,
+      wr_score:   awayPercentiles.WR[game.game_id] || 0,
+      te_score:   awayPercentiles.TE[game.game_id] || 0
+    });
+  });
+
+  return rows.sort((a, b) =>
+    a.week !== b.week ? a.week - b.week : String(a.game_id).localeCompare(String(b.game_id))
+  );
 }
 
 function writeGameScores() {
@@ -1348,7 +1393,8 @@ function writeGameScores() {
     sheet = ss.insertSheet('Game_Scores');
   }
 
-  const headers = ['game_id', 'week', 'matchup', 'venue_type', 'qb_score', 'rb_score', 'wr_score', 'te_score'];
+  const headers = ['week', 'game_id', 'matchup', 'team', 'home_away', 'venue_type',
+                   'qb_score', 'rb_score', 'wr_score', 'te_score'];
 
   sheet.getRange(1, 1, 1, headers.length)
     .setValues([headers])
@@ -1356,7 +1402,7 @@ function writeGameScores() {
     .setBackground('#efefef');
 
   const rows = gameScores.map(g => [
-    g.game_id, g.week, g.matchup, g.venue_type,
+    g.week, g.game_id, g.matchup, g.team, g.home_away, g.venue_type,
     g.qb_score, g.rb_score, g.wr_score, g.te_score
   ]);
 
@@ -1384,11 +1430,271 @@ function testGameScores() {
 
     Logger.log(
       'Game_Scores Complete!\n' +
-      `${numGames} games (expected 272)\n` +
-      `Sample: ${data[1][2]} - QB ${data[1][4]}, RB ${data[1][5]}, WR ${data[1][6]}, TE ${data[1][7]}`
+      `${numGames} rows (expected 544 = 272 games × 2 teams)\n` +
+      `Sample: ${data[1][2]} ${data[1][3]} (${data[1][4]}) - QB ${data[1][6]}, RB ${data[1][7]}, WR ${data[1][8]}, TE ${data[1][9]}`
     );
 
   } catch (error) {
     Logger.log('Error: ' + error.message);
+  }
+}
+
+// ============================================================
+// TASK 5A: DRAFT STRATEGY TIERS
+// ============================================================
+
+function segmentPlayersByRound(rankings) {
+  const rounds = {};
+  for (let round = 1; round <= 18; round++) {
+    rounds[round] = { QB: [], RB: [], WR: [], TE: [] };
+  }
+
+  for (const [pos, players] of Object.entries(rankings)) {
+    players.forEach(p => {
+      const round = Math.ceil(p.adp / 12);
+      if (round >= 1 && round <= 18) {
+        rounds[round][pos].push(p);
+      }
+    });
+  }
+
+  return rounds;
+}
+
+function getBestPositionInRound(roundPlayers) {
+  const posAvgs = {};
+  for (const [pos, players] of Object.entries(roundPlayers)) {
+    if (players.length > 0) {
+      posAvgs[pos] = players.reduce((sum, p) => sum + p.value_score, 0) / players.length;
+    }
+  }
+  return Object.entries(posAvgs).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
+}
+
+function analyzeRound(roundPlayers) {
+  const allPlayers = [
+    ...roundPlayers.QB,
+    ...roundPlayers.RB,
+    ...roundPlayers.WR,
+    ...roundPlayers.TE
+  ];
+
+  if (allPlayers.length === 0) {
+    return { total_players: 0, extreme_value: 0, strong_value: 0, avg_value_score: 0, best_position: 'N/A' };
+  }
+
+  return {
+    total_players:   allPlayers.length,
+    extreme_value:   allPlayers.filter(p => p.value_class === 'EXTREME VALUE').length,
+    strong_value:    allPlayers.filter(p => p.value_class === 'STRONG VALUE').length,
+    avg_value_score: Math.round(allPlayers.reduce((sum, p) => sum + p.value_score, 0) / allPlayers.length),
+    best_position:   getBestPositionInRound(roundPlayers)
+  };
+}
+
+function generateRoundStrategy(round, analysis) {
+  if (round <= 3) {
+    return 'ELITE ENVIRONMENTS ONLY - Target top players from dome teams and elite schedules. Prioritize talent + schedule combo.';
+  } else if (round <= 8) {
+    if (analysis.extreme_value >= 2) {
+      return `VALUE HUNTING - ${analysis.extreme_value} extreme value players available. Focus on ${analysis.best_position} if possible.`;
+    }
+    return 'VALUE HUNTING - Look for dome WRs and late QBs with elite schedules. Schedule quality > name value.';
+  } else if (round <= 12) {
+    return 'COMPLETE YOUR STACKS - Add bring-backs to your primary games. Target opposing WRs from your QB\'s best games.';
+  }
+  return 'DART THROWS - Single elite games, handcuffs to your RBs, leverage picks with injury upside.';
+}
+
+function writeDraftStrategyTiers() {
+  const rankings = buildPlayerValueRankings();
+  const byRound  = segmentPlayersByRound(rankings);
+
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName('Draft_Strategy_Tiers');
+  if (sheet) {
+    sheet.clear();
+  } else {
+    sheet = ss.insertSheet('Draft_Strategy_Tiers');
+  }
+
+  sheet.getRange(1, 1).setValue('[ ROUND-BY-ROUND DRAFT STRATEGY ]').setFontWeight('bold');
+
+  let currentRow = 3;
+
+  for (let round = 1; round <= 18; round++) {
+    const roundPlayers = byRound[round];
+    const analysis     = analyzeRound(roundPlayers);
+    const strategy     = generateRoundStrategy(round, analysis);
+
+    sheet.getRange(currentRow, 1)
+      .setValue(`ROUND ${round} (Picks ${(round - 1) * 12 + 1}-${round * 12})`)
+      .setFontWeight('bold');
+    currentRow++;
+
+    sheet.getRange(currentRow, 1, 1, 3).merge().setValue(strategy).setWrap(true);
+    currentRow++;
+
+    sheet.getRange(currentRow, 1).setValue(`Players in round: ${analysis.total_players}`);
+    sheet.getRange(currentRow, 2).setValue(`Extreme value: ${analysis.extreme_value}`);
+    sheet.getRange(currentRow, 3).setValue(`Best position: ${analysis.best_position}`);
+    currentRow++;
+
+    if (analysis.extreme_value > 0) {
+      sheet.getRange(currentRow, 1).setValue('Top value picks:');
+      currentRow++;
+
+      const allPlayers = [
+        ...roundPlayers.QB,
+        ...roundPlayers.RB,
+        ...roundPlayers.WR,
+        ...roundPlayers.TE
+      ];
+      const extremePlayers = allPlayers
+        .filter(p => p.value_class === 'EXTREME VALUE')
+        .sort((a, b) => b.value_score - a.value_score)
+        .slice(0, 3);
+
+      extremePlayers.forEach(p => {
+        sheet.getRange(currentRow, 1).setValue(`  ${p.player_name} (${p.position}, ${p.team}) - ADP ${p.adp}`);
+        currentRow++;
+      });
+    }
+
+    currentRow += 2;
+  }
+
+  sheet.autoResizeColumns(1, 3);
+  sheet.setColumnWidth(1, 500);
+
+  Logger.log('Draft_Strategy_Tiers created');
+
+  return true;
+}
+
+function testTask5A() {
+  try {
+    writeDraftStrategyTiers();
+
+    Logger.log(
+      'Task 5A Complete!\n' +
+      'Draft_Strategy_Tiers created\n' +
+      '18 rounds of strategy\n' +
+      'Check sheet for guidance'
+    );
+
+  } catch (error) {
+    Logger.log('Error: ' + error.message);
+  }
+}
+
+// ============================================================
+// TASK 5B: FINAL VALIDATION AND QA
+// ============================================================
+
+function validateModule7Complete() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const results = { tests: [], passed: 0, failed: 0 };
+
+  function check(name, fn) {
+    try {
+      const detail = fn();
+      const passed = detail.passed;
+      results.tests.push({ name, passed, details: detail.details });
+      passed ? results.passed++ : results.failed++;
+    } catch (e) {
+      results.tests.push({ name, passed: false, details: e.message });
+      results.failed++;
+    }
+  }
+
+  // Test 1: Team_Schedule_Summary — 160 rows (32 teams × 5 positions)
+  check('Team_Schedule_Summary: 160 rows', () => {
+    const data = getTeamSummaryData();
+    return { passed: data.length === 160, details: `Rows: ${data.length} (expected 160)` };
+  });
+
+  // Test 2: Position_Value_Rankings sheet exists
+  check('Position_Value_Rankings exists', () => {
+    const exists = ss.getSheetByName('Position_Value_Rankings') !== null;
+    return { passed: exists, details: exists ? 'Sheet created' : 'Sheet missing' };
+  });
+
+  // Test 3: Player counts in expected ranges
+  check('Player counts in range', () => {
+    const r = buildPlayerValueRankings();
+    const c = { QB: r.QB.length, RB: r.RB.length, WR: r.WR.length, TE: r.TE.length };
+    const ok = c.QB >= 30 && c.QB <= 35 &&
+               c.RB >= 60 && c.RB <= 70 &&
+               c.WR >= 95 && c.WR <= 105 &&
+               c.TE >= 30 && c.TE <= 35;
+    return { passed: ok, details: `QB:${c.QB} RB:${c.RB} WR:${c.WR} TE:${c.TE}` };
+  });
+
+  // Test 4: LAR WRs have 8+ elite (A+) games
+  check('LAR WRs have elite schedule (8+ A+ games)', () => {
+    const summary = getTeamSummaryData();
+    const larWR = summary.find(s => s.team === 'LAR' && s.position === 'WR');
+    const count = larWR ? larWR.a_plus_games : 0;
+    return { passed: count >= 8, details: `LAR WR A+ games: ${count} (expected >= 8)` };
+  });
+
+  // Test 5: Stack_Targets sheet exists and has rows
+  check('Stack_Targets exists with stacks', () => {
+    const sheet = ss.getSheetByName('Stack_Targets');
+    if (!sheet) return { passed: false, details: 'Sheet missing' };
+    const rows = sheet.getLastRow() - 1;
+    return { passed: rows > 0, details: `${rows} stacks` };
+  });
+
+  // Test 6: Team_Stack_Rankings — 32 teams
+  check('Team_Stack_Rankings: 32 teams', () => {
+    const sheet = ss.getSheetByName('Team_Stack_Rankings');
+    if (!sheet) return { passed: false, details: 'Sheet missing' };
+    const rows = sheet.getLastRow() - 1;
+    return { passed: rows === 32, details: `Rows: ${rows} (expected 32)` };
+  });
+
+  // Test 7: Game_Scores — 544 rows
+  check('Game_Scores: 544 rows', () => {
+    const sheet = ss.getSheetByName('Game_Scores');
+    if (!sheet) return { passed: false, details: 'Sheet missing' };
+    const rows = sheet.getLastRow() - 1;
+    return { passed: rows === 544, details: `Rows: ${rows} (expected 544)` };
+  });
+
+  // Test 8: Draft_Strategy_Tiers exists
+  check('Draft_Strategy_Tiers exists', () => {
+    const exists = ss.getSheetByName('Draft_Strategy_Tiers') !== null;
+    return { passed: exists, details: exists ? 'Sheet created' : 'Sheet missing' };
+  });
+
+  return results;
+}
+
+function testTask5B() {
+  const results = validateModule7Complete();
+
+  let message = 'MODULE 7 VALIDATION\n\n';
+  message += `Tests passed: ${results.passed}\n`;
+  message += `Tests failed: ${results.failed}\n\n`;
+  message += 'Details:\n';
+
+  results.tests.forEach(t => {
+    const status = t.passed ? 'PASS' : 'FAIL';
+    message += `[${status}] ${t.name}\n`;
+    if (!t.passed) message += `      ${t.details}\n`;
+  });
+
+  Logger.log(message);
+
+  if (results.failed === 0) {
+    Logger.log(
+      'MODULE 7 COMPLETE! All ' + results.passed + ' tests passed.\n' +
+      'Sheets: Team_Schedule_Summary, Position_Value_Rankings, Stack_Targets,\n' +
+      '        Team_Stack_Rankings, Game_Scores, Draft_Strategy_Tiers'
+    );
+  } else {
+    Logger.log(`VALIDATION FAILED: ${results.failed} test(s) failed. Check details above.`);
   }
 }
