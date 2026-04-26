@@ -695,13 +695,31 @@ function diagnoseCeilingRateMismatch() {
     Object.keys(envPosStats).map(k => k.split('|')[0])
   )].sort();
 
-  Logger.log("First 5 Vegas keys created:");
-  uniqueEnvKeys.slice(0, 5).forEach(envKey => {
+  // ── Home/Away column sanity check ─────────────────────────────────────
+  const perfSheet2   = ss.getSheetByName("Vegas_Enhanced_Performances");
+  const homeAwayCounts = { Home: 0, Away: 0, other: 0 };
+  if (perfSheet2) {
+    const raw2    = perfSheet2.getDataRange().getValues();
+    const hdrs2   = raw2[0].map(h => String(h).trim());
+    const haCol   = hdrs2.indexOf('Home_Away');
+    for (let i = 1; i < raw2.length; i++) {
+      const val = String(raw2[i][haCol]).trim();
+      if (val === 'Home')       homeAwayCounts.Home++;
+      else if (val === 'Away')  homeAwayCounts.Away++;
+      else                      homeAwayCounts.other++;
+    }
+  }
+  Logger.log(`Home_Away column counts — Home: ${homeAwayCounts.Home}, Away: ${homeAwayCounts.Away}, Other: ${homeAwayCounts.other}`);
+
+  // ── First 20 Vegas env keys (sorted) ──────────────────────────────────
+  Logger.log(`Total unique Vegas env keys: ${uniqueEnvKeys.length}`);
+  Logger.log("First 20 Vegas keys created:");
+  uniqueEnvKeys.slice(0, 20).forEach(envKey => {
     const qbRate = getRateForEnvPos(envKey, 'QB');
-    Logger.log(`${envKey}: QB=${qbRate}`);
+    Logger.log(`  ${envKey}: QB=${qbRate}`);
   });
 
-  // ── First 5 QB ceiling rates (all env keys, QB position only) ──────────
+  // ── First 5 QB ceiling rates with raw counts ───────────────────────────
   Logger.log("First 5 QB ceiling rates calculated:");
   const qbEntries = Object.entries(envPosStats)
     .filter(([k]) => k.endsWith('|QB'))
@@ -712,7 +730,7 @@ function diagnoseCeilingRateMismatch() {
     const rate   = stats.total > 0
       ? (stats.ceiling / stats.total).toFixed(3)
       : 'no data';
-    Logger.log(`${envKey}: QB=${rate} (${stats.ceiling}/${stats.total} ceiling hits)`);
+    Logger.log(`  ${envKey}: QB=${rate} (${stats.ceiling}/${stats.total} ceiling hits)`);
   });
 
   // ── Schedule_Enriched sample keys for comparison ────────────────────────
