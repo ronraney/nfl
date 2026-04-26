@@ -682,6 +682,29 @@ function buildHomeAwayCeilingRates() {
   return { getRateForEnvPos, posBaselines };
 }
 
+function diagnoseCeilingRateMismatch() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  // Sample env keys from Schedule_Enriched
+  const schedSheet = ss.getSheetByName("Schedule_Enriched");
+  const schedData  = schedSheet ? schedSheet.getDataRange().getValues() : [];
+  const schedHdrs  = schedData[0] || [];
+  const envIdx     = schedHdrs.indexOf('environment_key');
+  const schedKeys  = new Set();
+  for (let i = 1; i < Math.min(schedData.length, 20); i++) {
+    if (envIdx !== -1) schedKeys.add(String(schedData[i][envIdx]).trim());
+  }
+  Logger.log("Schedule_Enriched sample env keys:\n" + [...schedKeys].join("\n"));
+
+  // Sample env keys built from Vegas_Enhanced_Performances
+  const { getRateForEnvPos } = buildHomeAwayCeilingRates();
+  Logger.log("Vegas env key sample lookup (Outdoor_Home_Prime_Early QB): " +
+             getRateForEnvPos("Outdoor_Home_Prime_Early", "QB"));
+  Logger.log("Vegas env key sample lookup (Dome_Home_Day_Mid QB): " +
+             getRateForEnvPos("Dome_Home_Day_Mid", "QB"));
+  Logger.log("If either above is 0.25, that key is falling back to position baseline (no exact match).");
+}
+
 function updateScheduleWithHomeAwayCeilingRates() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Schedule_Enriched");
