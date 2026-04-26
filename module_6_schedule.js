@@ -679,30 +679,53 @@ function buildHomeAwayCeilingRates() {
   Logger.log(`[buildHomeAwayCeilingRates] Groups: ${totalGroups}, small sample (<${MIN_SAMPLE}): ${smallSample}`);
   Logger.log(`[buildHomeAwayCeilingRates] Position baselines: ${JSON.stringify(posBaselines)}`);
 
-  return { getRateForEnvPos, posBaselines };
+  return { getRateForEnvPos, posBaselines, envPosStats };
 }
 
 function diagnoseCeilingRateMismatch() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // Sample env keys from Schedule_Enriched
-  const schedSheet = ss.getSheetByName("Schedule_Enriched");
-  const schedData  = schedSheet ? schedSheet.getDataRange().getValues() : [];
-  const schedHdrs  = schedData[0] || [];
-  const envIdx     = schedHdrs.indexOf('environment_key');
-  const schedKeys  = new Set();
-  for (let i = 1; i < Math.min(schedData.length, 20); i++) {
-    if (envIdx !== -1) schedKeys.add(String(schedData[i][envIdx]).trim());
-  }
-  Logger.log("Schedule_Enriched sample env keys:\n" + [...schedKeys].join("\n"));
+  // Build the lookup and expose raw stats
+  const { getRateForEnvPos, envPosStats } = buildHomeAwayCeilingRates();
 
-  // Sample env keys built from Vegas_Enhanced_Performances
-  const { getRateForEnvPos } = buildHomeAwayCeilingRates();
-  Logger.log("Vegas env key sample lookup (Outdoor_Home_Prime_Early QB): " +
-             getRateForEnvPos("Outdoor_Home_Prime_Early", "QB"));
-  Logger.log("Vegas env key sample lookup (Dome_Home_Day_Mid QB): " +
-             getRateForEnvPos("Dome_Home_Day_Mid", "QB"));
-  Logger.log("If either above is 0.25, that key is falling back to position baseline (no exact match).");
+  // ── First 5 Vegas environment keys created ──────────────────────────────
+  // envPosStats keys look like "Dome_Home_Prime_Early|QB" — extract unique env keys
+  const uniqueEnvKeys = [...new Set(
+    Object.keys(envPosStats).map(k => k.split('|')[0])
+  )].sort();
+
+  Logger.log("First 5 Vegas keys created:");
+  uniqueEnvKeys.slice(0, 5).forEach(envKey => {
+    const qbRate = getRateForEnvPos(envKey, 'QB');
+    Logger.log(`${envKey}: QB=${qbRate}`);
+  });
+
+  // ── First 5 QB ceiling rates (all env keys, QB position only) ──────────
+  Logger.log("First 5 QB ceiling rates calculated:");
+  const qbEntries = Object.entries(envPosStats)
+    .filter(([k]) => k.endsWith('|QB'))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(0, 5);
+  qbEntries.forEach(([key, stats]) => {
+    const envKey = key.replace('|QB', '');
+    const rate   = stats.total > 0
+      ? (stats.ceiling / stats.total).toFixed(3)
+      : 'no data';
+    Logger.log(`${envKey}: QB=${rate} (${stats.ceiling}/${stats.total} ceiling hits)`);
+  });
+
+  // ── Schedule_Enriched sample keys for comparison ────────────────────────
+  const schedSheet = ss.getSheetByName("Schedule_Enriched");
+  if (schedSheet) {
+    const schedData = schedSheet.getDataRange().getValues();
+    const envIdx    = schedData[0].indexOf('environment_key');
+    const schedKeys = new Set();
+    for (let i = 1; i < Math.min(schedData.length, 10); i++) {
+      if (envIdx !== -1) schedKeys.add(String(schedData[i][envIdx]).trim());
+    }
+    Logger.log("Schedule_Enriched sample env keys (first 5 unique):");
+    [...schedKeys].slice(0, 5).forEach(k => Logger.log(`  ${k}`));
+  }
 }
 
 function updateScheduleWithHomeAwayCeilingRates() {
