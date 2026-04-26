@@ -411,27 +411,38 @@ function gradeToScore(grade) {
 
 function buildCeilingRatePercentiles(scheduleData) {
   const posFields = {
-    QB: 'qb_ceiling_rate',
-    RB: 'rb_ceiling_rate',
-    WR: 'wr_ceiling_rate',
-    TE: 'te_ceiling_rate'
+    QB: { home: 'home_qb_ceiling_rate', away: 'away_qb_ceiling_rate' },
+    RB: { home: 'home_rb_ceiling_rate', away: 'away_rb_ceiling_rate' },
+    WR: { home: 'home_wr_ceiling_rate', away: 'away_wr_ceiling_rate' },
+    TE: { home: 'home_te_ceiling_rate', away: 'away_te_ceiling_rate' }
   };
   const n = scheduleData.length;
-  const percentiles = {};
+  const homePercentiles = {};
+  const awayPercentiles = {};
 
-  for (const [pos, field] of Object.entries(posFields)) {
-    const sorted = scheduleData
-      .map(g => ({ game_id: g.game_id, rate: parseFloat(g[field]) || 0 }))
+  for (const [pos, fields] of Object.entries(posFields)) {
+    // Rank all 272 home rates independently
+    const homeSorted = scheduleData
+      .map(g => ({ game_id: g.game_id, rate: parseFloat(g[fields.home]) || 0 }))
       .sort((a, b) => a.rate - b.rate);
-
-    const scoreMap = {};
-    sorted.forEach((item, rank) => {
-      scoreMap[item.game_id] = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
+    const homeMap = {};
+    homeSorted.forEach((item, rank) => {
+      homeMap[item.game_id] = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
     });
-    percentiles[pos] = scoreMap;
+    homePercentiles[pos] = homeMap;
+
+    // Rank all 272 away rates independently
+    const awaySorted = scheduleData
+      .map(g => ({ game_id: g.game_id, rate: parseFloat(g[fields.away]) || 0 }))
+      .sort((a, b) => a.rate - b.rate);
+    const awayMap = {};
+    awaySorted.forEach((item, rank) => {
+      awayMap[item.game_id] = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
+    });
+    awayPercentiles[pos] = awayMap;
   }
 
-  return percentiles;
+  return { homePercentiles, awayPercentiles };
 }
 
 function computeStackEfficiencyGrade(efficiency) {
@@ -669,13 +680,19 @@ function computeStackStrategy(grade, role) {
 }
 
 function enrichWithStackData(byPosition, scheduleData, percentiles) {
+  const { homePercentiles, awayPercentiles } = percentiles;
   const allPlayers = Object.values(byPosition).flat();
 
-  // schedule_quality, elite_games_count, stack_grade per player using ceiling_rate percentiles
+  // schedule_quality and elite_games_count use the correct home/away score per game
   allPlayers.forEach(p => {
-    const posPercentiles = percentiles[p.position];
+    const pos = p.position;
     const teamGames = scheduleData.filter(g => g.home_team === p.team || g.away_team === p.team);
-    const scores    = teamGames.map(g => posPercentiles[g.game_id] || 0);
+    const scores = teamGames.map(g => {
+      const isHome = g.home_team === p.team;
+      return isHome
+        ? (homePercentiles[pos][g.game_id] || 0)
+        : (awayPercentiles[pos][g.game_id] || 0);
+    });
     p.schedule_quality  = scores.reduce((sum, s) => sum + s, 0);
     p.elite_games_count = scores.filter(s => s >= 70).length;
     p.stack_grade = computeStackGrade(p.elite_games_count, p.position);
@@ -799,7 +816,7 @@ function buildPlayerValueRankings() {
     Logger.log(`${pos}: ${n} players, value_score range ${players[n-1].value_score} to ${players[0].value_score}`);
   }
 
-  const percentiles = buildCeilingRatePercentiles(scheduleData);
+  const percentiles = buildCeilingRatePercentiles(scheduleData); // { homePercentiles, awayPercentiles }
   enrichWithStackData(byPosition, scheduleData, percentiles);
 
   return byPosition;
@@ -1323,17 +1340,44 @@ function testTeamStackRankings() {
 // ============================================================
 
 function buildGameScores(scheduleData) {
-  const percentiles = buildCeilingRatePercentiles(scheduleData);
-  return scheduleData.map(game => ({
-    game_id:    game.game_id,
-    week:       game.week,
-    matchup:    `${game.away_team} vs ${game.home_team}`,
-    venue_type: game.venue_type,
-    qb_score:   percentiles.QB[game.game_id] || 0,
-    rb_score:   percentiles.RB[game.game_id] || 0,
-    wr_score:   percentiles.WR[game.game_id] || 0,
-    te_score:   percentiles.TE[game.game_id] || 0
-  })).sort((a, b) => a.week !== b.week ? a.week - b.week : String(a.game_id).localeCompare(String(b.game_id)));
+  const { homePercentiles, awayPercentiles } = buildCeilingRatePercentiles(scheduleData);
+  const rows = [];
+
+  scheduleData.forEach(game => {
+    const matchup = `${game.away_team} @ ${game.home_team}`;
+
+    // Home team row
+    rows.push({
+      week:       game.week,
+      game_id:    game.game_id,
+      matchup:    matchup,
+      team:       game.home_team,
+      home_away:  'Home',
+      venue_type: game.venue_type,
+      qb_score:   homePercentiles.QB[game.game_id] || 0,
+      rb_score:   homePercentiles.RB[game.game_id] || 0,
+      wr_score:   homePercentiles.WR[game.game_id] || 0,
+      te_score:   homePercentiles.TE[game.game_id] || 0
+    });
+
+    // Away team row
+    rows.push({
+      week:       game.week,
+      game_id:    game.game_id,
+      matchup:    matchup,
+      team:       game.away_team,
+      home_away:  'Away',
+      venue_type: game.venue_type,
+      qb_score:   awayPercentiles.QB[game.game_id] || 0,
+      rb_score:   awayPercentiles.RB[game.game_id] || 0,
+      wr_score:   awayPercentiles.WR[game.game_id] || 0,
+      te_score:   awayPercentiles.TE[game.game_id] || 0
+    });
+  });
+
+  return rows.sort((a, b) =>
+    a.week !== b.week ? a.week - b.week : String(a.game_id).localeCompare(String(b.game_id))
+  );
 }
 
 function writeGameScores() {
@@ -1348,7 +1392,8 @@ function writeGameScores() {
     sheet = ss.insertSheet('Game_Scores');
   }
 
-  const headers = ['game_id', 'week', 'matchup', 'venue_type', 'qb_score', 'rb_score', 'wr_score', 'te_score'];
+  const headers = ['week', 'game_id', 'matchup', 'team', 'home_away', 'venue_type',
+                   'qb_score', 'rb_score', 'wr_score', 'te_score'];
 
   sheet.getRange(1, 1, 1, headers.length)
     .setValues([headers])
@@ -1356,7 +1401,7 @@ function writeGameScores() {
     .setBackground('#efefef');
 
   const rows = gameScores.map(g => [
-    g.game_id, g.week, g.matchup, g.venue_type,
+    g.week, g.game_id, g.matchup, g.team, g.home_away, g.venue_type,
     g.qb_score, g.rb_score, g.wr_score, g.te_score
   ]);
 
@@ -1384,8 +1429,8 @@ function testGameScores() {
 
     Logger.log(
       'Game_Scores Complete!\n' +
-      `${numGames} games (expected 272)\n` +
-      `Sample: ${data[1][2]} - QB ${data[1][4]}, RB ${data[1][5]}, WR ${data[1][6]}, TE ${data[1][7]}`
+      `${numGames} rows (expected 544 = 272 games × 2 teams)\n` +
+      `Sample: ${data[1][2]} ${data[1][3]} (${data[1][4]}) - QB ${data[1][6]}, RB ${data[1][7]}, WR ${data[1][8]}, TE ${data[1][9]}`
     );
 
   } catch (error) {
