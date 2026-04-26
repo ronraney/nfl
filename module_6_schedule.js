@@ -588,9 +588,8 @@ function buildHomeAwayCeilingRates() {
 
   const VALID_POS = ['QB', 'RB', 'WR', 'TE'];
   const MIN_SAMPLE = 5;
-  const MIN_RATE = 0.15;
-  const MAX_RATE = 0.50;
-  const clamp = r => Math.min(MAX_RATE, Math.max(MIN_RATE, r));
+  const MAX_RATE   = 0.60;
+  const clamp = r => Math.min(MAX_RATE, r);
 
   const posCol       = headers.indexOf('DK Pos');
   const venueTypeCol = headers.indexOf('Venue_Type');
@@ -651,7 +650,9 @@ function buildHomeAwayCeilingRates() {
     posBaselines[pos] = s ? clamp(s.ceiling / s.total) : 0.25;
   });
 
-  // getRateForEnvPos: implements 3-tier fallback per spec
+  // getRateForEnvPos: hard-cutoff fallback per spec.
+  // Uses exact group rate if n >= MIN_SAMPLE, else combined home+away, else position baseline.
+  // No minimum floor — preserves real low rates from the data.
   function getRateForEnvPos(envKey, pos) {
     const epKey = `${envKey}|${pos}`;
     const stats = envPosStats[epKey];
@@ -661,7 +662,7 @@ function buildHomeAwayCeilingRates() {
     }
 
     // Fallback 1: combined home+away for same base environment
-    const parts = envKey.split('_');
+    const parts  = envKey.split('_');
     const bepKey = `${parts[0]}_${parts[2]}_${parts[3]}|${pos}`;
     const combined = baseEnvPosStats[bepKey];
 
@@ -670,7 +671,7 @@ function buildHomeAwayCeilingRates() {
     }
 
     // Fallback 2: position baseline across all environments
-    return posBaselines[pos];
+    return clamp(posBaselines[pos]);
   }
 
   // Log sample summary
