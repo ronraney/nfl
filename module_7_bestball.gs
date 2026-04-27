@@ -1755,7 +1755,21 @@ function matchVarianceRecord(player, varianceData) {
 
   // Name-only fallback (handles position label differences)
   match = varianceData.find(r => normalizePlayerName(r['Player']) === needle);
-  return match || null;
+  if (match) return match;
+
+  // Log failed match with enough context to diagnose: normalized needle vs
+  // the closest variance name (first token match) so we can spot truncations,
+  // suffixes, or alternate spellings.
+  const firstToken = needle.split(' ')[0];
+  const candidates = varianceData
+    .filter(r => normalizePlayerName(r['Player']).startsWith(firstToken))
+    .map(r => `"${r['Player']}" (${r['Position']})`);
+  Logger.log(
+    `No variance match: "${player.player_name}" → normalized "${needle}" (${pos}, ${player.team})` +
+    (candidates.length ? `  | first-name candidates: ${candidates.join(', ')}` : '  | no first-name candidates in variance data')
+  );
+
+  return null;
 }
 
 function classifyPlayerType(ceilingRate, volatility) {

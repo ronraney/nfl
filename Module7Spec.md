@@ -2202,5 +2202,464 @@ Module 7 is COMPLETE when:
 **After completion:** Export all 4 sheets as CSV and confirm Module 7 is production-ready!
 
 ---
+# TASK 5A: DRAFT STRATEGY TIERS
 
+**Objective:** Create round-by-round draft guidance showing where value exists and when to target positions/stacks
+
+---
+
+## PURPOSE
+
+**Pre-draft planning tool** that answers:
+- "What positions should I target in Round 5?"
+- "When does QB value cluster appear?"
+- "Which rounds are critical for completing stacks?"
+- "Where are the value cliffs by position?"
+
+**Not a rigid draft script** - shows opportunity windows, not mandatory picks.
+
+---
+
+## OUTPUT STRUCTURE
+
+### New Sheet: Draft_Strategy_Tiers
+
+**18 rows (one per round in 12-team league)**
+
+### Columns
+
+1. **round** - Round number (1-18)
+2. **pick_range** - ADP range for this round (e.g., "1-12", "13-24")
+3. **top_position** - Position with most EXTREME/STRONG VALUE players available
+4. **position_distribution** - Count by position in this round (e.g., "8 RB, 3 WR, 1 QB")
+5. **value_cluster** - Which position has value concentration (EXTREME/STRONG count)
+6. **stack_priority** - Stack guidance (e.g., "Anchor round - draft WR1s", "Complete stacks")
+7. **scarcity_alert** - Position running thin (e.g., "Last A+ QBs", "Elite RB cliff")
+8. **recommendation** - Strategic guidance text
+
+---
+
+## CALCULATION METHOD
+
+### Step 1: Group Players by Round
+
+For each round (1-18):
+- Pick range = (round - 1) × 12 + 1 to round × 12
+- Example: Round 5 = picks 49-60
+
+Filter Position_Value_Rankings to players with ADP in this range.
+
+### Step 2: Analyze Position Distribution
+
+Count players by position in this round:
+```
+Round 5 (picks 49-60):
+- QB: 2 players
+- RB: 4 players
+- WR: 5 players
+- TE: 1 player
+```
+
+### Step 3: Identify Value Clusters
+
+Count EXTREME VALUE and STRONG VALUE players by position:
+```
+Round 5 value:
+- QB: 0 extreme, 1 strong
+- RB: 1 extreme, 2 strong
+- WR: 2 extreme, 2 strong
+- TE: 0 extreme, 0 strong
+
+value_cluster: "WR" (4 total value players)
+```
+
+### Step 4: Determine Top Position
+
+Position with most value players (EXTREME + STRONG count).
+
+### Step 5: Stack Priority Guidance
+
+By round characteristics:
+
+**Rounds 1-3 (early):**
+- "Anchor round - draft WR1/RB1 from top stack teams"
+- Look for A+ stack grade players with stack_role = "WR1 Anchor"
+
+**Rounds 4-7 (early-mid):**
+- "Secondary pieces - complete elite stacks if available"
+- Look for stack_role = "WR2 Core" matching your anchors
+
+**Rounds 8-10 (mid):**
+- "QB window - target if you have stack pieces"
+- Look for QB Core with A/B stack_grade
+
+**Rounds 11-14 (mid-late):**
+- "Complete stacks - add missing pieces"
+- Match remaining teammates to anchors drafted
+
+**Rounds 15-18 (late):**
+- "Dart throws - high upside only"
+- Look for EXTREME VALUE despite late ADP
+
+### Step 6: Scarcity Alerts
+
+Identify when position quality drops:
+
+**A+ stack grade cliff:**
+- Last round with A+ QB available
+- Last round with A+ WR available
+
+**Value cliff:**
+- Last round with EXTREME VALUE at position
+- First round with no STRONG VALUE at position
+
+**Example:**
+- Round 9: "Last A+ QBs available"
+- Round 12: "Elite RB pool exhausted"
+
+### Step 7: Generate Recommendations
+
+Synthesize into actionable guidance:
+
+**Example - Round 5:**
+```
+recommendation: "WR value cluster - 4 strong options available.
+Target if building LAR/CIN stacks. RB depth still decent (3 value picks).
+QB can wait - better value in rounds 8-10."
+```
+
+**Example - Round 9:**
+```
+recommendation: "Critical QB round - last A+ options (Stafford, Goff).
+Take QB if you have stack pieces from early rounds.
+WR2 pieces also available to complete stacks."
+```
+
+---
+
+## EXAMPLE OUTPUT
+
+```csv
+round,pick_range,top_position,position_distribution,value_cluster,stack_priority,scarcity_alert,recommendation
+1,1-12,RB,"7 RB, 4 WR, 1 QB",RB,Anchor round - draft RB1/WR1 from top stacks,Elite talent only,"Establish foundation with top RB/WR. Prioritize A+ stack teams (CIN, DET, LAR). Avoid QB - value exists later."
+5,49-60,WR,"4 RB, 5 WR, 2 QB, 1 TE",WR,Secondary pieces - complete elite stacks,"Last EXTREME VALUE WRs","WR value cluster with 4 strong options. Target LAR/DAL stack pieces. RB depth decent. QB can wait."
+9,97-108,QB,"3 QB, 4 RB, 4 WR, 1 TE",QB,QB window - target if you have pieces,"Last A+ QBs (Stafford, Goff)","Critical QB round. Take Stafford/Goff if you have LAR/DET pieces. Otherwise wait - B grade QBs available rounds 10-12."
+13,145-156,WR,"2 QB, 3 RB, 6 WR, 1 TE",WR,Complete stacks - fill gaps,WR depth thin after this,"Late stack completers available. Match to your QB/anchor WRs. Value picks exist but limited."
+18,205-216,RB,"4 RB, 6 WR, 1 QB, 1 TE",WR,Dart throws - upside only,All positions thin,"Final round value hunting. Take highest EXTREME VALUE score regardless of position. Handcuffs if stacks complete."
+```
+
+---
+
+## VALIDATION CHECKS
+
+**After generation:**
+
+1. **Every round has recommendation text**
+2. **Stack priority evolves logically** (Anchor → Secondary → QB → Complete → Dart throws)
+3. **Scarcity alerts appear** (at least 3-5 rounds should have alerts)
+4. **Value clusters shift by round** (different positions dominate different rounds)
+5. **Round 1 focuses on RB/WR anchors** (not QB)
+6. **Rounds 8-10 highlight QB window**
+7. **Late rounds emphasize value over position**
+
+---
+
+## IMPLEMENTATION STEPS
+
+1. Load Position_Value_Rankings
+2. Create empty array for 18 rounds
+3. For each round (1-18):
+   - Calculate pick_range
+   - Filter players by ADP in range
+   - Count by position (position_distribution)
+   - Count value players by position (value_cluster)
+   - Identify top_position
+   - Determine stack_priority based on round
+   - Check for scarcity_alert conditions
+   - Generate recommendation text
+4. Create Draft_Strategy_Tiers sheet
+5. Write 18 rows with all columns
+6. Format for readability
+
+---
+
+## ACCEPTANCE CRITERIA
+
+- [ ] Draft_Strategy_Tiers sheet created
+- [ ] 18 rows (rounds 1-18)
+- [ ] All columns populated
+- [ ] Round 1 emphasizes RB/WR anchors, not QB
+- [ ] Rounds 8-10 show QB window
+- [ ] At least 3 scarcity alerts present
+- [ ] Stack priority text evolves logically
+- [ ] Recommendations are specific and actionable
+- [ ] No generic filler text
+- [ ] Value clusters shift by round
+
+---
+
+**END OF TASK 5A**
+
+# MODULE 7 ENHANCEMENT: VARIANCE INTEGRATION
+
+**Objective:** Integrate player ceiling/volatility data into Best Ball Draft Analyzer to identify boom/bust plays
+
+---
+
+## WHY THIS MATTERS FOR BEST BALL
+
+**Best Ball auto-starts your best lineup each week:**
+- 3 elite weeks > 17 mediocre weeks
+- High-variance players are MORE valuable (not less)
+- Ceiling matters more than floor
+- Boom/bust profiles should rank higher
+
+**Current system only considers:**
+- Schedule quality (game environment ceiling rates)
+- Draft cost (ADP)
+
+**Missing dimension:**
+- Individual player ceiling/volatility traits
+- Historical boom/bust patterns
+
+---
+
+## DATA SOURCE
+
+**NFL_Variance - NFL_Dashboard sheet:**
+
+Key columns:
+- `Player` - Player name
+- `Position` - QB/RB/WR/TE
+- `Season 4x` - % of games hitting 4x salary (elite ceiling marker)
+- `Season 5x` - % of games hitting 5x salary (massive games)
+- `Season 6x` - % of games hitting 6x salary (nuclear games)
+- `Season CV%` - Coefficient of variation (volatility measure)
+- `L6 4x` - Recent 6-game ceiling hit rate
+- `4x Reliable%` - Consistency metric (lower = more boom/bust)
+
+---
+
+## INTEGRATION APPROACH
+
+### Step 1: Load Variance Data
+
+Match players from Position_Value_Rankings to NFL_Variance dashboard by name and position.
+
+**Matching logic:**
+1. Exact name + position match
+2. Normalize names (remove Jr., III, punctuation)
+3. Fuzzy match for close names
+4. Log unmatched players for manual review
+
+**Fallback for unmatched players:**
+- Use position baseline ceiling rates
+- Mark with flag for review
+
+### Step 2: Calculate Ceiling Metrics
+
+For each matched player:
+
+**ceiling_rate** = Season 4x% (primary metric)
+- 0-50% scale
+- Measures how often player hits elite games
+
+**volatility** = Season CV%
+- Higher = more boom/bust
+- Lower = more consistent
+
+**ceiling_score** = composite metric
+```
+ceiling_score = (ceiling_rate × 0.6) + (volatility × 0.4)
+```
+
+Convert to 0-100 percentile across all players at that position.
+
+**player_type** = classification:
+- **Boom/Bust**: high ceiling_rate (>30%), high volatility (>60%)
+- **Ceiling Play**: high ceiling_rate (>30%), moderate volatility (40-60%)
+- **Stable**: moderate ceiling_rate (20-30%), low volatility (<40%)
+- **Low Ceiling**: low ceiling_rate (<20%), any volatility
+
+### Step 3: Adjust Value Score
+
+**Current formula:**
+```
+value_score = schedule_pct - cost_pct
+```
+
+**Enhanced formula:**
+```
+value_score = (schedule_pct × 0.5) + (ceiling_score × 0.3) - (cost_pct × 0.2)
+```
+
+**Weights explained:**
+- Schedule: 50% (game environment still critical)
+- Ceiling: 30% (individual upside matters)
+- Cost: 20% (value factor, but less important than upside)
+
+**Effect:**
+- Late-round boom/bust players rank higher
+- Consistent floor players rank lower
+- Elite schedule + elite ceiling = maximum value
+
+---
+
+## NEW COLUMNS IN POSITION_VALUE_RANKINGS
+
+Add after existing columns:
+
+21. **ceiling_rate** - Season 4x% (0-50%)
+22. **volatility** - Season CV% (20-120%)
+23. **ceiling_score** - Percentile composite (0-100)
+24. **player_type** - Classification (Boom/Bust, Ceiling Play, Stable, Low Ceiling)
+25. **l6_ceiling** - Recent 6-game 4x rate (shows trends)
+
+**Updated value_score** (column 13) uses new formula.
+
+**Total columns: 25** (was 21)
+
+---
+
+## EXAMPLE CALCULATIONS
+
+**Player: Jacoby Brissett (QB, ARI)**
+
+Current data:
+- ADP: 149.3 (round 13)
+- schedule_quality: 1160 (100th percentile)
+- value_score: +79 (EXTREME VALUE)
+
+Add variance data:
+- Season 4x: 63.6% (elite ceiling!)
+- Season CV%: 48.0% (moderate volatility)
+- ceiling_score: (63.6 × 0.6) + (48.0 × 0.4) = 57.4 → 95th percentile
+- player_type: "Ceiling Play" (high ceiling, moderate volatility)
+
+Recalculate value_score:
+```
+Old: schedule_pct (100) - cost_pct (21) = +79
+New: (schedule_pct 100 × 0.5) + (ceiling_score 95 × 0.3) - (cost_pct 21 × 0.2)
+   = 50 + 28.5 - 4.2
+   = +74.3
+```
+
+**Result:** Still EXTREME VALUE, but slightly lower (elite schedule + elite ceiling + late cost)
+
+---
+
+**Player: Josh Allen (QB, BUF)**
+
+Current data:
+- ADP: 22.8 (round 2)
+- schedule_quality: 568 (52nd percentile)
+- value_score: -48 (AVOID)
+
+Add variance data:
+- Season 4x: 35.7% (good ceiling)
+- Season CV%: 21.2% (low volatility - very consistent)
+- ceiling_score: (35.7 × 0.6) + (21.2 × 0.4) = 29.9 → 60th percentile
+- player_type: "Stable" (moderate ceiling, low volatility)
+
+Recalculate value_score:
+```
+Old: schedule_pct (52) - cost_pct (100) = -48
+New: (schedule_pct 52 × 0.5) + (ceiling_score 60 × 0.3) - (cost_pct 100 × 0.2)
+   = 26 + 18 - 20
+   = +24
+```
+
+**Result:** Moved from AVOID (-48) to FAIR VALUE (+24) because of strong individual ceiling traits!
+
+---
+
+## EXPECTED IMPACT
+
+**Players that should rank HIGHER:**
+- Late-round boom/bust WRs (high ceiling, low cost)
+- Volatile QBs with elite upside (even mediocre schedule)
+- Low-floor, high-ceiling RBs (TD-dependent)
+
+**Players that should rank LOWER:**
+- Early-round consistent floor plays (low ceiling)
+- High-cost "safe" players (low volatility)
+- Players with good schedules but low individual ceiling
+
+**Examples:**
+- ↑ Rashid Shaheed (WR, NO): ADP 170, 26.7% ceiling rate, high volatility → bomb
+- ↓ Jonathan Taylor (RB, IND): ADP 50, only 28.6% ceiling rate, low volatility → safe but capped
+- ↑ Bryce Young (QB, CAR): ADP 143, 61.5% ceiling rate → lottery ticket
+
+---
+
+## IMPLEMENTATION STEPS
+
+1. Load NFL_Variance dashboard data
+2. Create player name normalization function
+3. Match Position_Value_Rankings players to variance data
+4. Calculate ceiling metrics (ceiling_rate, volatility, ceiling_score)
+5. Classify player_types
+6. Recalculate value_score with enhanced formula
+7. Add 5 new columns to Position_Value_Rankings
+8. Rebuild Stack_Targets (shared_schedule_quality unchanged, but player rankings shift)
+9. Rebuild Team_Stack_Rankings (composite scores adjust)
+10. Update Draft_Strategy_Tiers (value clusters shift)
+
+---
+
+## VALIDATION CHECKS
+
+**After integration:**
+
+1. **Ceiling data loaded:** All players should have ceiling_rate (or position baseline if unmatched)
+2. **Value score shifts:** Some players move up/down significantly
+3. **Late-round boom/bust players rank higher:** Check rounds 12-18 for EXTREME VALUE increases
+4. **Consistent early picks rank lower:** Check rounds 1-5 for FAIR VALUE increases
+5. **Player types distributed:** ~20% Boom/Bust, ~30% Ceiling Play, ~35% Stable, ~15% Low Ceiling
+6. **No calculation errors:** No null values, all percentiles 0-100
+
+**Spot checks:**
+- Jacoby Brissett should remain EXTREME VALUE (elite schedule + elite ceiling)
+- Josh Allen should improve from AVOID → FAIR VALUE (strong ceiling offsets mediocre schedule)
+- Jonathan Taylor should drop from early value to FAIR VALUE (safe but capped)
+
+---
+
+## OUTPUT CHANGES
+
+**Position_Value_Rankings:**
+- 21 → 25 columns (add 4 variance columns)
+- value_score recalculated for all 200 players
+- Ranking shifts (some players move 10-20 spots)
+
+**Stack_Targets:**
+- shared_schedule_quality unchanged (environment-based)
+- But individual player value_score shifts affect which stacks appear elite
+
+**Team_Stack_Rankings:**
+- Composite scores adjust based on new player value_scores
+- Boom/bust teams (lots of volatile players) may rank higher
+
+**Draft_Strategy_Tiers:**
+- Value clusters shift to different rounds
+- More EXTREME VALUE in late rounds (boom/bust corridor)
+
+---
+
+## ACCEPTANCE CRITERIA
+
+- [ ] NFL_Variance data loaded (121 players minimum)
+- [ ] Player name matching >90% success rate
+- [ ] All 200 players have ceiling_rate (exact match or baseline)
+- [ ] ceiling_score percentiles calculated per position
+- [ ] player_type assigned to all players
+- [ ] value_score recalculated with enhanced formula
+- [ ] Position_Value_Rankings has 25 columns
+- [ ] Value clusters shift as expected (late boom/bust higher, early safe lower)
+- [ ] Stack outputs rebuild successfully
+- [ ] Draft tiers reflect new value distribution
+
+---
+
+**END OF MODULE 7 VARIANCE INTEGRATION SPEC**
 **END OF IMPLEMENTATION TRACK**
