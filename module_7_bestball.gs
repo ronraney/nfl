@@ -312,7 +312,8 @@ function writePositionValueRankings() {
     'a_plus_games', 'a_games', 'b_games', 'elite_game_value',
     'schedule_pct', 'cost_pct', 'value_score',
     'schedule_quality', 'elite_games_count', 'stack_grade', 'stack_role', 'best_stack_with', 'stack_strategy',
-    'value_class', 'recommendation'
+    'value_class', 'recommendation',
+    'ceiling_rate', 'volatility', 'ceiling_score', 'player_type', 'l6_ceiling'
   ];
 
   let currentRow = 1;
@@ -350,7 +351,12 @@ function writePositionValueRankings() {
       p.best_stack_with,
       p.stack_strategy,
       p.value_class,
-      p.recommendation
+      p.recommendation,
+      p.ceiling_rate  != null ? Math.round(p.ceiling_rate  * 10) / 10 : '',
+      p.volatility    != null ? Math.round(p.volatility    * 10) / 10 : '',
+      p.ceiling_score != null ? p.ceiling_score : '',
+      p.player_type   || '',
+      p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : ''
     ]);
 
     if (rows.length > 0) {
@@ -806,18 +812,22 @@ function buildPlayerValueRankings() {
 
       player.schedule_percentile = Math.round(((n - 1 - schedRank) / (n - 1)) * 100);
       player.cost_percentile     = Math.round(((n - 1 - costRank)  / (n - 1)) * 100);
-      player.value_score         = player.schedule_percentile - player.cost_percentile;
       player.round               = Math.ceil(player.adp / 12);
-      player.value_class         = classifyPlayerValue(player.value_score);
-      player.recommendation      = generateRecommendation(player.value_class, player.a_plus_games);
     });
-
-    players.sort((a, b) => b.value_score - a.value_score);
-
-    Logger.log(`${pos}: ${n} players, value_score range ${players[n-1].value_score} to ${players[0].value_score}`);
   }
 
-  const percentiles = buildCeilingRatePercentiles(scheduleData); // { homePercentiles, awayPercentiles }
+  // Variance integration: ceiling_score enriches value_score formula
+  const varianceData = loadVarianceData();
+  applyVarianceMetrics(byPosition, varianceData);
+
+  // Final sort and logging after variance recalculates value_score
+  for (const [pos, players] of Object.entries(byPosition)) {
+    if (players.length === 0) continue;
+    players.sort((a, b) => b.value_score - a.value_score);
+    Logger.log(`${pos}: ${players.length} players, value_score range ${players[players.length-1].value_score} to ${players[0].value_score}`);
+  }
+
+  const percentiles = buildCeilingRatePercentiles(scheduleData);
   enrichWithStackData(byPosition, scheduleData, percentiles);
 
   return byPosition;
@@ -1696,5 +1706,171 @@ function testTask5B() {
     );
   } else {
     Logger.log(`VALIDATION FAILED: ${results.failed} test(s) failed. Check details above.`);
+  }
+}
+
+// ============================================================
+// MODULE 7 ENHANCEMENT: VARIANCE INTEGRATION
+// ============================================================
+
+function loadVarianceData() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('NFL_Dashboard');
+
+  if (!sheet) {
+    Logger.log('NFL_Dashboard sheet not found — variance metrics will use position baselines');
+    return [];
+  }
+
+  const data    = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const rows    = data.slice(1);
+
+  return rows.map(row => {
+    const record = {};
+    headers.forEach((h, i) => { record[h] = row[i]; });
+    return record;
+  }).filter(r => r['Player'] && r['Position']);
+}
+
+function normalizePlayerName(name) {
+  if (!name) return '';
+  return String(name)
+    .replace(/\b(Jr\.?|Sr\.?|II|III|IV|V)\b/gi, '')
+    .replace(/['.,-]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function matchVarianceRecord(player, varianceData) {
+  const needle = normalizePlayerName(player.player_name);
+  const pos    = player.position;
+
+  // Exact normalized name + position match first
+  let match = varianceData.find(r =>
+    normalizePlayerName(r['Player']) === needle && r['Position'] === pos
+  );
+  if (match) return match;
+
+  // Name-only fallback (handles position label differences)
+  match = varianceData.find(r => normalizePlayerName(r['Player']) === needle);
+  if (match) return match;
+
+  // Log failed match with enough context to diagnose: normalized needle vs
+  // the closest variance name (first token match) so we can spot truncations,
+  // suffixes, or alternate spellings.
+  const firstToken = needle.split(' ')[0];
+  const candidates = varianceData
+    .filter(r => normalizePlayerName(r['Player']).startsWith(firstToken))
+    .map(r => `"${r['Player']}" (${r['Position']})`);
+  Logger.log(
+    `No variance match: "${player.player_name}" → normalized "${needle}" (${pos}, ${player.team})` +
+    (candidates.length ? `  | first-name candidates: ${candidates.join(', ')}` : '  | no first-name candidates in variance data')
+  );
+
+  return null;
+}
+
+function classifyPlayerType(ceilingRate, volatility) {
+  if (ceilingRate > 30 && volatility > 60)  return 'Boom/Bust';
+  if (ceilingRate > 30 && volatility >= 40) return 'Ceiling Play';
+  if (ceilingRate >= 20 && volatility < 40) return 'Stable';
+  return 'Low Ceiling';
+}
+
+function applyVarianceMetrics(byPosition, varianceData) {
+  // Position baselines used when no variance record found
+  const posBaseline = {
+    QB: { ceiling_rate: 25, volatility: 45, l6_ceiling: 25 },
+    RB: { ceiling_rate: 18, volatility: 55, l6_ceiling: 18 },
+    WR: { ceiling_rate: 20, volatility: 58, l6_ceiling: 20 },
+    TE: { ceiling_rate: 15, volatility: 50, l6_ceiling: 15 }
+  };
+
+  for (const [pos, players] of Object.entries(byPosition)) {
+    if (players.length === 0) continue;
+
+    // Attach raw variance fields
+    players.forEach(p => {
+      const rec = matchVarianceRecord(p, varianceData);
+      if (rec) {
+        // Spreadsheet stores values as decimals (0-1) or percentages (0-100).
+        // Normalize to percentage scale for ceiling_score formula.
+        const toPercent = v => {
+          const n = parseFloat(v) || 0;
+          return n <= 1 ? n * 100 : n;
+        };
+        p.ceiling_rate = toPercent(rec['Season 4x']);
+        p.volatility   = toPercent(rec['Season CV%']);
+        p.l6_ceiling   = toPercent(rec['L6 4x']);
+        p.variance_matched = true;
+      } else {
+        const base = posBaseline[pos];
+        p.ceiling_rate = base.ceiling_rate;
+        p.volatility   = base.volatility;
+        p.l6_ceiling   = base.l6_ceiling;
+        p.variance_matched = false;
+        Logger.log(`Variance baseline used for ${p.player_name} (${pos})`);
+      }
+    });
+
+    // ceiling_score raw composite, then percentile within position
+    players.forEach(p => {
+      p._ceiling_raw = (p.ceiling_rate * 0.6) + (p.volatility * 0.4);
+    });
+
+    const sorted = [...players].sort((a, b) => a._ceiling_raw - b._ceiling_raw);
+    const n = sorted.length;
+    sorted.forEach((p, rank) => {
+      p.ceiling_score = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
+    });
+
+    // Classify player type and apply enhanced value_score formula
+    players.forEach(p => {
+      p.player_type  = classifyPlayerType(p.ceiling_rate, p.volatility);
+      // Enhanced formula: schedule 50% + ceiling 30% - cost 20%
+      p.value_score  = Math.round(
+        (p.schedule_percentile * 0.5) + (p.ceiling_score * 0.3) - (p.cost_percentile * 0.2)
+      );
+      p.value_class     = classifyPlayerValue(p.value_score);
+      p.recommendation  = generateRecommendation(p.value_class, p.a_plus_games);
+    });
+  }
+
+  const matched = Object.values(byPosition).flat().filter(p => p.variance_matched).length;
+  const total   = Object.values(byPosition).flat().length;
+  Logger.log(`Variance match rate: ${matched}/${total} players (${Math.round(matched/total*100)}%)`);
+}
+
+function testVarianceIntegration() {
+  try {
+    const varData  = loadVarianceData();
+    const rankings = buildPlayerValueRankings();
+
+    Logger.log(`NFL_Dashboard rows loaded: ${varData.length}`);
+
+    const allPlayers = Object.values(rankings).flat();
+    const matched    = allPlayers.filter(p => p.variance_matched).length;
+    Logger.log(`Variance match rate: ${matched}/${allPlayers.length}`);
+
+    // Spot-check top QB
+    const qb1 = rankings.QB[0];
+    Logger.log(`Top QB: ${qb1.player_name} — value_score ${qb1.value_score}, ceiling_rate ${qb1.ceiling_rate}%, ceiling_score ${qb1.ceiling_score}, type: ${qb1.player_type}`);
+
+    // Show player type distribution
+    const typeCounts = {};
+    allPlayers.forEach(p => { typeCounts[p.player_type] = (typeCounts[p.player_type] || 0) + 1; });
+    Logger.log('Player type distribution: ' + JSON.stringify(typeCounts));
+
+    // EXTREME VALUE count by position
+    const extreme = {};
+    for (const [pos, players] of Object.entries(rankings)) {
+      extreme[pos] = players.filter(p => p.value_class === 'EXTREME VALUE').length;
+    }
+    Logger.log('EXTREME VALUE counts: ' + JSON.stringify(extreme));
+
+  } catch (error) {
+    Logger.log('Error: ' + error.message);
   }
 }
