@@ -322,40 +322,40 @@ function writePositionValueRankings() {
     .setBackground('#efefef');
 
   const positions = ['QB', 'RB', 'WR', 'TE'];
-  const allRows = [];
-
+  const allPlayers = [];
   for (const position of positions) {
-    rankings[position].forEach((p, i) => {
-      allRows.push([
-        i + 1,
-        p.position,
-        p.player_name,
-        p.team,
-        p.adp,
-        p.round,
-        p.a_plus_games,
-        p.a_games,
-        p.b_games,
-        p.elite_game_value,
-        p.schedule_percentile,
-        p.cost_percentile,
-        p.value_score,
-        p.schedule_quality,
-        p.elite_games_count,
-        p.stack_grade,
-        p.stack_role,
-        p.best_stack_with,
-        p.stack_strategy,
-        p.value_class,
-        p.recommendation,
-        p.ceiling_rate  != null ? Math.round(p.ceiling_rate  * 10) / 10 : '',
-        p.volatility    != null ? Math.round(p.volatility    * 10) / 10 : '',
-        p.ceiling_score != null ? p.ceiling_score : '',
-        p.player_type   || '',
-        p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : ''
-      ]);
-    });
+    rankings[position].forEach(p => allPlayers.push(p));
   }
+  allPlayers.sort((a, b) => b.value_score - a.value_score);
+
+  const allRows = allPlayers.map((p, i) => [
+    i + 1,
+    p.position,
+    p.player_name,
+    p.team,
+    p.adp,
+    p.round,
+    p.a_plus_games,
+    p.a_games,
+    p.b_games,
+    p.elite_game_value,
+    p.schedule_percentile,
+    p.cost_percentile,
+    p.value_score,
+    p.schedule_quality,
+    p.elite_games_count,
+    p.stack_grade,
+    p.stack_role,
+    p.best_stack_with,
+    p.stack_strategy,
+    p.value_class,
+    p.recommendation,
+    p.ceiling_rate  != null ? Math.round(p.ceiling_rate  * 10) / 10 : '',
+    p.volatility    != null ? Math.round(p.volatility    * 10) / 10 : '',
+    p.ceiling_score != null ? p.ceiling_score : '',
+    p.player_type   || '',
+    p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : ''
+  ]);
 
   if (allRows.length > 0) {
     sheet.getRange(2, 1, allRows.length, headers.length).setValues(allRows);
