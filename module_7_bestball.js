@@ -306,7 +306,7 @@ function writePositionValueRankings() {
   const headers = [
     'rank', 'position', 'player_name', 'team', 'adp', 'round',
     'elite_games', 'strong_games', 'playable_games', 'elite_game_value', 'elite_game_value_raw',
-    'schedule_pct', 'cost_pct', 'value_score',
+    'schedule_pct', 'value_score',
     'schedule_quality', 'schedule_quality_raw', 'elite_games_count', 'stack_role', 'best_stack_with',
     'ceiling_rate', 'volatility', 'ceiling_score', 'l6_ceiling',
     'playoff_score', 'playoff_score_raw'
@@ -337,7 +337,6 @@ function writePositionValueRankings() {
     p.elite_game_value,
     p.elite_game_value_raw  != null ? Math.round(p.elite_game_value_raw  * 10) / 10 : '',
     p.schedule_percentile,
-    p.cost_percentile,
     p.value_score,
     p.schedule_quality,
     p.schedule_quality_raw  != null ? Math.round(p.schedule_quality_raw) : '',
@@ -1657,6 +1656,17 @@ function matchVarianceRecord(player, varianceData) {
   // Name-only fallback (handles position label differences)
   match = varianceData.find(r => normalizePlayerName(r['Player']) === needle);
   if (match) return match;
+
+  // Diagnostic: log normalized ADP name vs all Dashboard candidates for known problem players
+  if (needle.includes('lamb') || needle.includes('jefferson')) {
+    Logger.log(`[NameDiag] ADP: "${player.player_name}" → normalized: "${needle}" (${pos})`);
+    varianceData
+      .filter(r => {
+        const n = normalizePlayerName(r['Player']);
+        return n.includes('lamb') || n.includes('jefferson');
+      })
+      .forEach(r => Logger.log(`[NameDiag] Dashboard: "${r['Player']}" → normalized: "${normalizePlayerName(r['Player'])}" (${r['Position']})`));
+  }
 
   // Log failed match with enough context to diagnose: normalized needle vs
   // the closest variance name (first token match) so we can spot truncations,
