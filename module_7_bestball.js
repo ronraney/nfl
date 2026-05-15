@@ -1477,7 +1477,8 @@ function writeDraftStrategyTiers() {
 
   const headers = [
     'round', 'position', 'player_name', 'team', 'adp',
-    'value_score', 'schedule_quality', 'playoff_score', 'elite_games', 'best_stack_with'
+    'value_score', 'schedule_quality', 'playoff_score', 'elite_games',
+    'stack_with_a', 'round_a', 'stack_with_b', 'round_b'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -1491,18 +1492,30 @@ function writeDraftStrategyTiers() {
     return b.value_score - a.value_score;
   });
 
-  const rows = allPlayers.map(p => [
-    p.round,
-    p.position,
-    p.player_name,
-    p.team,
-    p.adp,
-    p.value_score,
-    p.schedule_quality,
-    p.playoff_score != null ? p.playoff_score : 0,
-    p.elite_games,
-    p.best_stack_with || ''
-  ]);
+  // Build name → round lookup from the same player pool
+  const roundByName = {};
+  allPlayers.forEach(p => { roundByName[p.player_name] = p.round; });
+
+  const rows = allPlayers.map(p => {
+    const partners = (p.best_stack_with || '').split(', ').filter(Boolean);
+    const nameA  = partners[0] || '';
+    const nameB  = partners[1] || '';
+    return [
+      p.round,
+      p.position,
+      p.player_name,
+      p.team,
+      p.adp,
+      p.value_score,
+      p.schedule_quality,
+      p.playoff_score != null ? p.playoff_score : 0,
+      p.elite_games,
+      nameA,
+      nameA ? (roundByName[nameA] || '') : '',
+      nameB,
+      nameB ? (roundByName[nameB] || '') : ''
+    ];
+  });
 
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
