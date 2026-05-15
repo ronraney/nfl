@@ -345,13 +345,15 @@ function writePositionValueRankings() {
   }
   allPlayers.sort((a, b) => b.value_score - a.value_score);
 
+  const ecrLookup = loadEcrLookup();
+
   const allRows = allPlayers.map((p, i) => [
     i + 1,
     p.position,
     p.player_name,
     p.team,
     p.adp,
-    '',  // adp_ecr — XLOOKUP formula written below
+    ecrLookup[p.player_name] || '',
     p.round,
     p.elite_games,
     p.strong_games,
@@ -374,10 +376,6 @@ function writePositionValueRankings() {
   ]);
 
   if (allRows.length > 0) {
-    const ecrLookup = loadEcrLookup();
-    allPlayers.forEach((p, i) => {
-      allRows[i][headers.indexOf('adp_ecr')] = ecrLookup[p.player_name] ?? '';
-    });
     sheet.getRange(2, 1, allRows.length, headers.length).setValues(allRows);
   }
 
