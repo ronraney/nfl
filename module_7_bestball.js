@@ -460,81 +460,51 @@ function computeStackDraftStrategy(grade) {
 }
 
 function buildStackTargets(byPosition) {
-  const allPlayers = Object.values(byPosition).flat();
+  const POS_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3 };
+
+  // Only players with value_score >= 50 qualify
+  const allPlayers = Object.values(byPosition).flat().filter(p => p.value_score >= 50);
 
   const byTeam = {};
   allPlayers.forEach(p => {
-    if (!byTeam[p.team]) byTeam[p.team] = { QB: [], RB: [], WR: [], TE: [] };
-    if (byTeam[p.team][p.position]) byTeam[p.team][p.position].push(p);
+    if (!byTeam[p.team]) byTeam[p.team] = [];
+    byTeam[p.team].push(p);
   });
 
-  for (const team of Object.keys(byTeam)) {
-    for (const pos of ['QB', 'RB', 'WR', 'TE']) {
-      byTeam[team][pos].sort((a, b) => b.value_score - a.value_score);
-    }
-  }
-
-  function makeStack(team, qb, p1, p2) {
-    if (!qb || !p1 || !p2) return null;
-    if (qb.adp >= 200 || p1.adp >= 200 || p2.adp >= 200) return null;
-    const sharedScheduleQuality = Math.round((qb.schedule_quality + p1.schedule_quality + p2.schedule_quality) / 3);
-    const totalCost = qb.adp + p1.adp + p2.adp;
-    const efficiency = Math.round((sharedScheduleQuality / totalCost) * 100) / 100;
-    const grade = computeStackEfficiencyGrade(efficiency);
-    return {
-      team,
-      qb_name: qb.player_name,
-      qb_adp: qb.adp,
-      pc1_name: p1.player_name,
-      pc1_position: p1.position,
-      pc1_adp: p1.adp,
-      pc2_name: p2.player_name,
-      pc2_position: p2.position,
-      pc2_adp: p2.adp,
-      total_stack_cost: Math.round(totalCost * 10) / 10,
-      shared_schedule_quality: sharedScheduleQuality,
-      stack_efficiency: efficiency,
-      stack_grade: grade,
-      draft_strategy: computeStackDraftStrategy(grade)
-    };
+  function buildStack(team, playerSet) {
+    // Sort players within stack by value_score descending — ensures consistent ordering
+    // and deduplication (A+B and B+A are the same sorted set, and i<j<k iteration
+    // guarantees each unique combination is generated exactly once)
+    const sorted = [...playerSet].sort((a, b) => b.value_score - a.value_score);
+    const positions = sorted.map(p => p.position)
+      .sort((a, b) => (POS_ORDER[a] ?? 99) - (POS_ORDER[b] ?? 99));
+    const combined_value      = sorted.reduce((sum, p) => sum + p.value_score, 0);
+    const total_stack_cost    = Math.round(sorted.reduce((sum, p) => sum + p.adp, 0) * 10) / 10;
+    const shared_schedule_quality = Math.round(
+      sorted.reduce((sum, p) => sum + (p.schedule_quality || 0), 0) / sorted.length
+    );
+    const stack_efficiency = total_stack_cost > 0
+      ? Math.round((combined_value / total_stack_cost) * 100) / 100
+      : 0;
+    return { team, stack_type: positions.join('+'), combined_value, total_stack_cost,
+             shared_schedule_quality, stack_efficiency, players: sorted };
   }
 
   const stacks = [];
 
-  for (const [team, pos] of Object.entries(byTeam)) {
-    const qb = pos.QB[0];
-    if (!qb) continue;
-
-    const wrs = pos.WR.slice(0, 3);
-    const tes = pos.TE.slice(0, 1);
-    const rbs = pos.RB.slice(0, 2);
-    const passers = [...wrs, ...tes];
-
-    // QB + 2 pass catchers (all pairs from WR1/WR2/WR3/TE1)
-    for (let i = 0; i < passers.length; i++) {
-      for (let j = i + 1; j < passers.length; j++) {
-        const s = makeStack(team, qb, passers[i], passers[j]);
-        if (s) stacks.push(s);
+  for (const [team, players] of Object.entries(byTeam)) {
+    const n = players.length;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        stacks.push(buildStack(team, [players[i], players[j]]));
+        for (let k = j + 1; k < n; k++) {
+          stacks.push(buildStack(team, [players[i], players[j], players[k]]));
+        }
       }
-    }
-
-    // QB + RB + pass catcher
-    for (const rb of rbs) {
-      for (const pc of passers) {
-        const s = makeStack(team, qb, rb, pc);
-        if (s) stacks.push(s);
-      }
-    }
-
-    // QB + RB1 + RB2
-    if (rbs[0] && rbs[1]) {
-      const s = makeStack(team, qb, rbs[0], rbs[1]);
-      if (s) stacks.push(s);
     }
   }
 
-  toPercentile(stacks, 'stack_efficiency');
-  stacks.sort((a, b) => b.stack_efficiency - a.stack_efficiency);
+  stacks.sort((a, b) => b.combined_value - a.combined_value);
   return stacks;
 }
 
@@ -551,11 +521,11 @@ function writeStackTargets() {
   }
 
   const headers = [
-    'rank', 'team',
-    'qb_name', 'qb_adp',
-    'pc1_name', 'pc1_position', 'pc1_adp',
-    'pc2_name', 'pc2_position', 'pc2_adp',
-    'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency', 'stack_efficiency_raw'
+    'rank', 'team', 'stack_type',
+    'player1_name', 'player1_position', 'player1_adp',
+    'player2_name', 'player2_position', 'player2_adp',
+    'player3_name', 'player3_position', 'player3_adp',
+    'combined_value', 'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -563,21 +533,25 @@ function writeStackTargets() {
     .setFontWeight('bold')
     .setBackground('#efefef');
 
-  const rows = stacks.map((s, i) => [
-    i + 1,
-    s.team,
-    s.qb_name, s.qb_adp,
-    s.pc1_name, s.pc1_position, s.pc1_adp,
-    s.pc2_name, s.pc2_position, s.pc2_adp,
-    s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency, s.stack_efficiency_raw
-  ]);
+  const rows = stacks.map((s, i) => {
+    const p1 = s.players[0];
+    const p2 = s.players[1];
+    const p3 = s.players[2] || null;
+    return [
+      i + 1, s.team, s.stack_type,
+      p1.player_name, p1.position, p1.adp,
+      p2.player_name, p2.position, p2.adp,
+      p3 ? p3.player_name : '', p3 ? p3.position : '', p3 ? p3.adp : '',
+      s.combined_value, s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency
+    ];
+  });
 
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
 
+  sheet.setFrozenRows(1);
   sheet.autoResizeColumns(1, headers.length);
-
   Logger.log(`Stack_Targets created: ${stacks.length} stacks`);
   return true;
 }
@@ -1214,43 +1188,29 @@ function buildTeamStackRankings(stacks) {
   const rankings = [];
 
   for (const [team, teamStacks] of Object.entries(byTeam)) {
-    const efficiencies = teamStacks.map(s => s.stack_efficiency);
-    const best_stack_eff  = efficiencies.length > 0 ? Math.max(...efficiencies) : 0;
-    const avg_stack_eff   = efficiencies.length > 0
-      ? Math.round((efficiencies.reduce((sum, e) => sum + e, 0) / efficiencies.length) * 100) / 100
+    const values = teamStacks.map(s => s.combined_value);
+    const best_combined    = values.length > 0 ? Math.max(...values) : 0;
+    const avg_combined     = values.length > 0
+      ? Math.round(values.reduce((sum, v) => sum + v, 0) / values.length)
       : 0;
-    const viable_stacks   = teamStacks.length;
-    const elite_stack_count    = teamStacks.filter(s => s.stack_efficiency >= 80).length;
-    const strong_stack_count   = teamStacks.filter(s => s.stack_efficiency >= 60 && s.stack_efficiency < 80).length;
-    const playable_stack_count = teamStacks.filter(s => s.stack_efficiency >= 40 && s.stack_efficiency < 60).length;
-    const composite_score = Math.round(((best_stack_eff * 0.4) + (avg_stack_eff * 0.4) + (Math.min(viable_stacks, 10) * 0.2)) * 100) / 100;
-
-    let team_grade;
-    if (composite_score >= 6.0)      team_grade = 'A+';
-    else if (composite_score >= 4.5) team_grade = 'A';
-    else if (composite_score >= 3.0) team_grade = 'B';
-    else if (composite_score >= 2.0) team_grade = 'C';
-    else                             team_grade = 'D';
-
-    const recommendationMap = {
-      'A+': 'Elite stacking team - multiple A+ combinations available',
-      'A':  'Strong stacking team - several high-quality options',
-      'B':  'Viable stacking team - good combinations available',
-      'C':  'Limited stacking team - fewer quality options',
-      'D':  'Weak stacking team - avoid building around this team'
-    };
+    const viable_stacks    = teamStacks.length;
+    // Thresholds on combined_value (sum of 2-3 value_scores, each 0-100)
+    const elite_stack_count    = teamStacks.filter(s => s.combined_value >= 220).length;
+    const strong_stack_count   = teamStacks.filter(s => s.combined_value >= 170 && s.combined_value < 220).length;
+    const playable_stack_count = teamStacks.filter(s => s.combined_value >= 130 && s.combined_value < 170).length;
+    const composite_score = Math.round(
+      ((best_combined * 0.4) + (avg_combined * 0.4) + (Math.min(viable_stacks, 10) * 2)) * 10
+    ) / 10;
 
     rankings.push({
       team,
-      best_stack_eff:  Math.round(best_stack_eff * 100) / 100,
-      avg_stack_eff,
+      best_combined,
+      avg_combined,
       viable_stacks,
       elite_stack_count,
       strong_stack_count,
       playable_stack_count,
-      composite_score,
-      team_grade,
-      recommendation: recommendationMap[team_grade]
+      composite_score
     });
   }
 
@@ -1273,7 +1233,7 @@ function writeTeamStackRankings() {
   }
 
   const headers = [
-    'rank', 'team', 'best_stack_eff', 'avg_stack_eff', 'viable_stacks',
+    'rank', 'team', 'best_combined', 'avg_combined', 'viable_stacks',
     'elite_stack_count', 'strong_stack_count', 'playable_stack_count', 'composite_score', 'composite_score_raw'
   ];
 
@@ -1285,8 +1245,8 @@ function writeTeamStackRankings() {
   const rows = teamRankings.map((t, i) => [
     i + 1,
     t.team,
-    t.best_stack_eff,
-    t.avg_stack_eff,
+    t.best_combined,
+    t.avg_combined,
     t.viable_stacks,
     t.elite_stack_count,
     t.strong_stack_count,
