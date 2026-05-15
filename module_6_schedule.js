@@ -327,9 +327,9 @@ function generateCorrelationNotes(envRate, venue) {
 // Game classification
 
 function classifyGameType(qbRate, rbRate, dstRate) {
-  if (qbRate >= 0.40 && dstRate < 0.20) return "Shootout";
+  if (qbRate >= 0.40)                    return "Shootout";
   if (rbRate >= 0.28 && qbRate < 0.25)  return "Grind";
-  if (dstRate >= 0.35)                   return "Blowout";
+  if (dstRate >= 0.35 && qbRate < 0.30) return "Blowout";
   return "Competitive";
 }
 
