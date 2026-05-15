@@ -705,15 +705,9 @@ function enrichWithStackData(byPosition, scheduleData, percentiles) {
     const tes = players.filter(p => p.position === 'TE').sort((a, b) => b.value_score - a.value_score);
     const rbs = players.filter(p => p.position === 'RB').sort((a, b) => b.value_score - a.value_score);
 
-    // QB role
-    if (qbs[0] && ['A+', 'A', 'B'].includes(qbs[0].stack_grade)) {
-      qbs[0].stack_role = 'QB Core';
-    }
-
-    // WR1 Anchor = top WR
+    // Stack roles
+    if (qbs[0] && qbs[0].elite_games_count >= 4) qbs[0].stack_role = 'QB Core';
     if (wrs[0]) wrs[0].stack_role = 'WR1 Anchor';
-
-    // Remaining pass catchers: next 2 get WR2 Core / TE Core
     const remaining = [...wrs.slice(1), ...tes].sort((a, b) => b.value_score - a.value_score);
     remaining.forEach((p, i) => {
       if (i < 2) {
@@ -722,31 +716,15 @@ function enrichWithStackData(byPosition, scheduleData, percentiles) {
         p.stack_role = 'Flex Option';
       }
     });
+    rbs.forEach(rb => { if (rb.value_score > 0) rb.stack_role = 'Flex Option'; });
 
-    rbs.forEach(rb => {
-      if (rb.value_score > 0) rb.stack_role = 'Flex Option';
-    });
-
-    // Helper: top N pass catchers by value_score, optionally excluding one player
-    const topPassCatchers = (exclude, n) =>
-      [...wrs, ...tes]
-        .filter(p => p.player_name !== exclude)
-        .sort((a, b) => b.value_score - a.value_score)
-        .slice(0, n)
-        .map(p => p.player_name);
-
-    const qbName = qbs[0] ? qbs[0].player_name : null;
-
+    // Stack partners: top 2 teammates by value_score, no position filtering
     players.forEach(p => {
-      if (p.position === 'QB') {
-        p.best_stack_with = topPassCatchers(null, 2).join(', ');
-      } else if (p.position === 'WR' || p.position === 'TE') {
-        const others = topPassCatchers(p.player_name, 1);
-        p.best_stack_with = [qbName, ...others].filter(Boolean).join(', ');
-      } else if (p.position === 'RB') {
-        p.best_stack_with = [qbName, wrs[0] ? wrs[0].player_name : null].filter(Boolean).join(', ');
-      }
-      p.stack_strategy = computeStackStrategy(p.stack_grade, p.stack_role);
+      const partners = players
+        .filter(t => t.player_name !== p.player_name)
+        .sort((a, b) => b.value_score - a.value_score)
+        .slice(0, 2);
+      p.best_stack_with = partners.map(t => t.player_name).join(', ');
     });
   }
 }
