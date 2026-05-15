@@ -1233,9 +1233,9 @@ function buildTeamStackRankings(stacks) {
       ? Math.round((efficiencies.reduce((sum, e) => sum + e, 0) / efficiencies.length) * 100) / 100
       : 0;
     const viable_stacks   = teamStacks.length;
-    const elite_stack_count = teamStacks.filter(s => s.stack_efficiency >= 8.0).length;
-    const strong_stack_count   = teamStacks.filter(s => s.stack_efficiency >= 6.0 && s.stack_efficiency < 8.0).length;
-    const playable_stack_count = teamStacks.filter(s => s.stack_efficiency >= 4.0 && s.stack_efficiency < 6.0).length;
+    const elite_stack_count    = teamStacks.filter(s => s.stack_efficiency >= 80).length;
+    const strong_stack_count   = teamStacks.filter(s => s.stack_efficiency >= 60 && s.stack_efficiency < 80).length;
+    const playable_stack_count = teamStacks.filter(s => s.stack_efficiency >= 40 && s.stack_efficiency < 60).length;
     const composite_score = Math.round(((best_stack_eff * 0.4) + (avg_stack_eff * 0.4) + (Math.min(viable_stacks, 10) * 0.2)) * 100) / 100;
 
     let team_grade;
@@ -1714,12 +1714,9 @@ function applyVarianceMetrics(byPosition, varianceData) {
       }
     });
 
-    // ceiling_score: percentile within position, matched players only
+    // ceiling_score: percentile rank of ceiling_rate among matched players only
     const matched = players.filter(p => p.variance_matched);
-    matched.forEach(p => {
-      p._ceiling_raw = (p.ceiling_rate * 0.6) + (p.volatility * 0.4);
-    });
-    const sortedMatched = [...matched].sort((a, b) => a._ceiling_raw - b._ceiling_raw);
+    const sortedMatched = [...matched].sort((a, b) => (a.ceiling_rate || 0) - (b.ceiling_rate || 0));
     const nm = sortedMatched.length;
     sortedMatched.forEach((p, rank) => {
       p.ceiling_score = nm > 1 ? Math.round((rank / (nm - 1)) * 100) : 50;
