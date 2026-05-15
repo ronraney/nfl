@@ -458,10 +458,11 @@ function computeStackEfficiencyGrade(efficiency) {
 }
 
 function assignPlayoffGrade(score) {
-  if (score >= 2.5) return 'A+';
-  if (score >= 2.0) return 'A';
-  if (score >= 1.5) return 'B';
-  if (score >= 1.0) return 'C';
+  // Thresholds calibrated to Late-tier weeks 15-17 where max achievable ~1.8
+  if (score >= 1.5) return 'A+';
+  if (score >= 1.0) return 'A';
+  if (score >= 0.6) return 'B';
+  if (score >= 0.3) return 'C';
   return 'D';
 }
 
@@ -656,7 +657,6 @@ function runAllSheets() {
   writeStackTargets();          // Stack_Targets
   writeTeamStackRankings();     // Team_Stack_Rankings
   writeGameScores();            // Game_Scores
-  writeDraftStrategyTiers();    // Draft_Strategy_Tiers
 
   ss.toast('Done!', 'Best Ball', 5);
   Logger.log('runAllSheets complete');
@@ -779,11 +779,11 @@ function enrichWithStackData(byPosition, scheduleData, percentiles) {
 }
 
 function classifyPlayerValue(valueScore) {
-  // valueScore = schedule_percentile - cost_percentile (-100 to +100)
-  if (valueScore >  40) return "EXTREME VALUE";
-  if (valueScore >  20) return "STRONG VALUE";
-  if (valueScore >= -20) return "FAIR VALUE";
-  if (valueScore >= -40) return "SLIGHT REACH";
+  // valueScore = schedule (60%) + ceiling (40%), range 0-100
+  if (valueScore > 70) return "EXTREME VALUE";
+  if (valueScore > 55) return "STRONG VALUE";
+  if (valueScore > 40) return "FAIR VALUE";
+  if (valueScore > 25) return "SLIGHT REACH";
   return "AVOID";
 }
 
@@ -1253,7 +1253,7 @@ function buildTeamStackRankings(stacks) {
     const a_plus_count    = teamStacks.filter(s => s.stack_efficiency >= 8.0).length;
     const a_count         = teamStacks.filter(s => s.stack_efficiency >= 6.0 && s.stack_efficiency < 8.0).length;
     const b_count         = teamStacks.filter(s => s.stack_efficiency >= 4.0 && s.stack_efficiency < 6.0).length;
-    const composite_score = Math.round(((best_stack_eff * 0.4) + (avg_stack_eff * 0.4) + (viable_stacks * 0.2)) * 100) / 100;
+    const composite_score = Math.round(((best_stack_eff * 0.4) + (avg_stack_eff * 0.4) + (Math.min(viable_stacks, 10) * 0.2)) * 100) / 100;
 
     let team_grade;
     if (composite_score >= 6.0)      team_grade = 'A+';
@@ -1844,15 +1844,17 @@ function applyVarianceMetrics(byPosition, varianceData) {
       p.ceiling_score = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
     });
 
-    // Classify player type and apply enhanced value_score formula
+    // Classify player type and apply value_score formula
     players.forEach(p => {
-      p.player_type  = classifyPlayerType(p.ceiling_rate, p.volatility);
-      // Enhanced formula: schedule 50% + ceiling 30% - cost 20%
-      p.value_score  = Math.round(
-        (p.schedule_percentile * 0.5) + (p.ceiling_score * 0.3) - (p.cost_percentile * 0.2)
+      p.player_type = p.variance_matched
+        ? classifyPlayerType(p.ceiling_rate, p.volatility)
+        : 'No 2025 Data';
+      // schedule 60% + ceiling 40% — cost excluded so elite players aren't penalized for high ADP
+      p.value_score = Math.round(
+        (p.schedule_percentile * 0.6) + (p.ceiling_score * 0.4)
       );
-      p.value_class     = classifyPlayerValue(p.value_score);
-      p.recommendation  = generateRecommendation(p.value_class, p.a_plus_games);
+      p.value_class    = classifyPlayerValue(p.value_score);
+      p.recommendation = generateRecommendation(p.value_class, p.a_plus_games);
     });
   }
 
