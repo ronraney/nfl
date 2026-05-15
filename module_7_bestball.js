@@ -1800,35 +1800,31 @@ function applyVarianceMetrics(byPosition, varianceData) {
         p.l6_ceiling   = toPercent(rec['L6 4x']);
         p.variance_matched = true;
       } else {
-        const base = posBaseline[pos];
-        p.ceiling_rate = base.ceiling_rate;
-        p.volatility   = base.volatility;
-        p.l6_ceiling   = base.l6_ceiling;
+        p.ceiling_rate = null;
+        p.volatility   = null;
+        p.l6_ceiling   = null;
         p.variance_matched = false;
-        Logger.log(`Variance baseline used for ${p.player_name} (${pos})`);
       }
     });
 
-    // ceiling_score raw composite, then percentile within position
-    players.forEach(p => {
+    // ceiling_score: percentile within position, matched players only
+    const matched = players.filter(p => p.variance_matched);
+    matched.forEach(p => {
       p._ceiling_raw = (p.ceiling_rate * 0.6) + (p.volatility * 0.4);
     });
-
-    const sorted = [...players].sort((a, b) => a._ceiling_raw - b._ceiling_raw);
-    const n = sorted.length;
-    sorted.forEach((p, rank) => {
-      p.ceiling_score = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
+    const sortedMatched = [...matched].sort((a, b) => a._ceiling_raw - b._ceiling_raw);
+    const nm = sortedMatched.length;
+    sortedMatched.forEach((p, rank) => {
+      p.ceiling_score = nm > 1 ? Math.round((rank / (nm - 1)) * 100) : 50;
     });
+    players.filter(p => !p.variance_matched).forEach(p => { p.ceiling_score = null; });
 
-    // Classify player type and apply value_score formula
+    // value_score: matched players use schedule 60% + ceiling 40%
+    //              unmatched use schedule 100% (ceiling_score excluded to prevent ADP tiebreaking)
     players.forEach(p => {
-      p.player_type = p.variance_matched
-        ? classifyPlayerType(p.ceiling_rate, p.volatility)
-        : 'No 2025 Data';
-      // schedule 60% + ceiling 40% — cost excluded so elite players aren't penalized for high ADP
-      p.value_score = Math.round(
-        (p.schedule_percentile * 0.6) + (p.ceiling_score * 0.4)
-      );
+      p.value_score = p.variance_matched
+        ? Math.round((p.schedule_percentile * 0.6) + (p.ceiling_score * 0.4))
+        : p.schedule_percentile;
       p.value_class    = classifyPlayerValue(p.value_score);
       p.recommendation = generateRecommendation(p.value_class, p.elite_games);
     });
