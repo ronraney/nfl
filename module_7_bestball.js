@@ -305,12 +305,12 @@ function writePositionValueRankings() {
 
   const headers = [
     'rank', 'position', 'player_name', 'team', 'adp', 'round',
-    'a_plus_games', 'a_games', 'b_games', 'elite_game_value',
+    'a_plus_games', 'a_games', 'b_games', 'elite_game_value', 'elite_game_value_raw',
     'schedule_pct', 'cost_pct', 'value_score',
-    'schedule_quality', 'elite_games_count', 'stack_role', 'best_stack_with', 'stack_strategy',
+    'schedule_quality', 'schedule_quality_raw', 'elite_games_count', 'stack_role', 'best_stack_with', 'stack_strategy',
     'value_class', 'recommendation',
     'ceiling_rate', 'volatility', 'ceiling_score', 'player_type', 'l6_ceiling',
-    'playoff_score'
+    'playoff_score', 'playoff_score_raw'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -336,10 +336,12 @@ function writePositionValueRankings() {
     p.a_games,
     p.b_games,
     p.elite_game_value,
+    p.elite_game_value_raw  != null ? Math.round(p.elite_game_value_raw  * 10) / 10 : '',
     p.schedule_percentile,
     p.cost_percentile,
     p.value_score,
     p.schedule_quality,
+    p.schedule_quality_raw  != null ? Math.round(p.schedule_quality_raw) : '',
     p.elite_games_count,
     p.stack_role,
     p.best_stack_with,
@@ -351,7 +353,8 @@ function writePositionValueRankings() {
     p.ceiling_score != null ? p.ceiling_score : '',
     p.player_type   || '',
     p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : '',
-    p.playoff_score != null ? Math.round(p.playoff_score * 100) / 100 : 0
+    p.playoff_score     != null ? p.playoff_score : 0,
+    p.playoff_score_raw != null ? Math.round(p.playoff_score_raw * 100) / 100 : 0
   ]);
 
   if (allRows.length > 0) {
@@ -441,6 +444,16 @@ function buildCeilingRatePercentiles(scheduleData) {
   }
 
   return { homePercentiles, awayPercentiles };
+}
+
+function toPercentile(items, field) {
+  const rawField = field + '_raw';
+  const sorted = [...items].sort((a, b) => (a[field] || 0) - (b[field] || 0));
+  const n = sorted.length;
+  sorted.forEach((item, rank) => {
+    item[rawField] = item[field] || 0;
+    item[field]    = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
+  });
 }
 
 function computeStackEfficiencyGrade(efficiency) {
@@ -533,6 +546,7 @@ function buildStackTargets(byPosition) {
     }
   }
 
+  toPercentile(stacks, 'stack_efficiency');
   stacks.sort((a, b) => b.stack_efficiency - a.stack_efficiency);
   return stacks;
 }
@@ -554,7 +568,7 @@ function writeStackTargets() {
     'qb_name', 'qb_adp',
     'pc1_name', 'pc1_position', 'pc1_adp',
     'pc2_name', 'pc2_position', 'pc2_adp',
-    'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency',
+    'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency', 'stack_efficiency_raw',
     'draft_strategy'
   ];
 
@@ -569,7 +583,7 @@ function writeStackTargets() {
     s.qb_name, s.qb_adp,
     s.pc1_name, s.pc1_position, s.pc1_adp,
     s.pc2_name, s.pc2_position, s.pc2_adp,
-    s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency,
+    s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency, s.stack_efficiency_raw,
     s.draft_strategy
   ]);
 
@@ -815,6 +829,13 @@ function buildPlayerValueRankings() {
 
   const percentiles = buildCeilingRatePercentiles(scheduleData);
   enrichWithStackData(byPosition, scheduleData, percentiles);
+
+  // Convert to percentile ranks within position; raw values preserved with _raw suffix
+  for (const players of Object.values(byPosition)) {
+    toPercentile(players, 'elite_game_value');
+    toPercentile(players, 'schedule_quality');
+    toPercentile(players, 'playoff_score');
+  }
 
   return byPosition;
 }
@@ -1259,6 +1280,7 @@ function buildTeamStackRankings(stacks) {
     });
   }
 
+  toPercentile(rankings, 'composite_score');
   rankings.sort((a, b) => b.composite_score - a.composite_score);
   return rankings;
 }
@@ -1278,7 +1300,7 @@ function writeTeamStackRankings() {
 
   const headers = [
     'rank', 'team', 'best_stack_eff', 'avg_stack_eff', 'viable_stacks',
-    'a_plus_count', 'a_count', 'b_count', 'composite_score', 'recommendation'
+    'a_plus_count', 'a_count', 'b_count', 'composite_score', 'composite_score_raw', 'recommendation'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -1296,6 +1318,7 @@ function writeTeamStackRankings() {
     t.a_count,
     t.b_count,
     t.composite_score,
+    t.composite_score_raw,
     t.recommendation
   ]);
 

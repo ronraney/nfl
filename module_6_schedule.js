@@ -128,6 +128,22 @@ function processSchedule() {
     });
   }
 
+  // Convert position scores to percentile ranks (0-100) across all 272 games per position
+  ['qb', 'rb', 'wr', 'te', 'dst'].forEach(pos => {
+    const field    = `${pos}_score`;
+    const rawField = `${field}_raw`;
+    const sorted   = [...processedGames].sort((a, b) => a[field] - b[field]);
+    const n        = sorted.length;
+    const pctMap   = {};
+    sorted.forEach((g, rank) => {
+      pctMap[g.game_id] = n > 1 ? Math.round((rank / (n - 1)) * 100) : 50;
+    });
+    processedGames.forEach(g => {
+      g[rawField] = g[field];
+      g[field]    = pctMap[g.game_id];
+    });
+  });
+
   writeScheduleEnriched(ss, processedGames);
   generateQATest(ss, scheduleData, processedGames, teamsData);
 
@@ -352,12 +368,12 @@ function writeScheduleEnriched(ss, games) {
     "home_itt", "away_itt",
     // Environment context (3)
     "environment_key", "environment_rate", "environment_rank",
-    // Position scores (15)
-    "qb_score",  "qb_ceiling_rate",  "qb_recommendation",
-    "rb_score",  "rb_ceiling_rate",  "rb_recommendation",
-    "wr_score",  "wr_ceiling_rate",  "wr_recommendation",
-    "te_score",  "te_ceiling_rate",  "te_recommendation",
-    "dst_score", "dst_ceiling_rate", "dst_recommendation",
+    // Position scores (20)
+    "qb_score",  "qb_score_raw",  "qb_ceiling_rate",  "qb_recommendation",
+    "rb_score",  "rb_score_raw",  "rb_ceiling_rate",  "rb_recommendation",
+    "wr_score",  "wr_score_raw",  "wr_ceiling_rate",  "wr_recommendation",
+    "te_score",  "te_score_raw",  "te_ceiling_rate",  "te_recommendation",
+    "dst_score", "dst_score_raw", "dst_ceiling_rate", "dst_recommendation",
     // Stack analysis (3)
     "stack_requirements", "onslaught_eligible", "correlation_notes",
     // Game classification (3)
