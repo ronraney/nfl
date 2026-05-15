@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A Google Apps Script project living inside a Google Spreadsheet. It takes raw NFL schedule data and ADP data, enriches every game with environment-based ceiling probability estimates, then produces player value rankings, stack recommendations, and round-by-round draft strategy — all calibrated using historical 2025 DFS performance data.
+A Google Apps Script project living inside a Google Spreadsheet. It takes raw NFL schedule data and ADP data, enriches every game with environment-based ceiling probability estimates, then produces player value rankings, stack recommendations, and game scores — all calibrated using historical 2025 DFS performance data.
 
 ---
 
@@ -11,7 +11,7 @@ A Google Apps Script project living inside a Google Spreadsheet. It takes raw NF
 | Module | File | Purpose |
 |---|---|---|
 | Module 6 | `module_6_schedule.js` | Schedule processing — converts raw PFR schedule into enriched game data |
-| Module 7 | `module_7_bestball.js` | Best Ball analysis — player value, stacks, game scores, draft strategy |
+| Module 7 | `module_7_bestball.js` | Best Ball analysis — player value, stacks, game scores |
 | Dashboard | `module_dashboard.js` | Historical player profiling — ceiling rates and volatility from 2025 DFS data |
 
 ---
@@ -29,12 +29,11 @@ A Google Apps Script project living inside a Google Spreadsheet. It takes raw NF
    → Requires Vegas_Enhanced_Performances sheet
    → Adds 8 home/away ceiling rate columns to Schedule_Enriched
 
-4. Best Ball → Process Schedule              (module_7_bestball.js)
+4. Best Ball → Build Team Summary            (module_7_bestball.js)
    → Writes Team_Schedule_Summary
 
 5. Best Ball → Build All Sheets              (module_7_bestball.js)
-   → Writes Position_Value_Rankings, Stack_Targets, Team_Stack_Rankings,
-      Game_Scores, Draft_Strategy_Tiers
+   → Writes Position_Value_Rankings, Stack_Targets, Team_Stack_Rankings, Game_Scores
 ```
 
 Steps 3 and 1 are optional but improve accuracy: step 3 adds empirical home/away split rates; step 1 feeds variance data into value scores.
@@ -62,12 +61,11 @@ Steps 3 and 1 are optional but improve accuracy: step 3 adds empirical home/away
 | `Schedule_Enriched` | 272 | One row per game, 47+ columns |
 | `QA_Test` | ~100 | 10-section diagnostic report |
 | `NFL_Dashboard` | ~230 | Per-player ceiling rate and volatility from 2025 data |
-| `Team_Schedule_Summary` | 160 | 32 teams × 5 positions, grade counts and elite_game_value |
+| `Team_Schedule_Summary` | 160 | 32 teams × 5 positions, grade counts, elite_game_value, playoff columns |
 | `Position_Value_Rankings` | ~228 | All players sorted by value_score, color-coded |
 | `Stack_Targets` | 200–400 | All viable 3-player stacks sorted by efficiency |
 | `Team_Stack_Rankings` | 32 | Teams ranked by composite stacking quality |
 | `Game_Scores` | 544 | 272 games × 2 teams, percentile scores by position |
-| `Draft_Strategy_Tiers` | — | Round-by-round strategy with top value picks per round |
 
 ---
 
@@ -75,9 +73,21 @@ Steps 3 and 1 are optional but improve accuracy: step 3 adds empirical home/away
 
 ### What It Does
 
-Reads the raw PFR schedule and converts each game into a 47-column enriched record — identifying venue, primetime, division status, week tier, environment, position-specific ceiling rates, grades, stack requirements, and game classification.
+Reads the raw PFR schedule and converts each game into a 47-column enriched record — identifying venue, primetime, division status, week tier, environment, position-specific ceiling rates and scores, stack requirements, and game classification.
 
 ### Key Concepts
+
+**Threshold Constants** — Defined once in `module_6_schedule.js`, shared across both modules (GAS uses a single global scope):
+
+```js
+ELITE_THRESHOLD    = 0.40   // score ≥ 40 — ELITE
+STRONG_THRESHOLD   = 0.32   // score ≥ 32 — STRONG
+PLAYABLE_THRESHOLD = 0.24   // score ≥ 24 — PLAYABLE
+WEAK_THRESHOLD     = 0.18   // score ≥ 18 — WEAK
+                            // score < 18 — AVOID
+```
+
+**Position Score** — `ceiling_rate × 100` as an integer (0–100). Replaces letter grades in all output columns. The recommendation text (ELITE / STRONG / PLAYABLE / WEAK / AVOID) is still generated from the same thresholds.
 
 **Environment Key** — A string that identifies the game context:
 ```
@@ -90,19 +100,9 @@ Always built from the home team's perspective (`_Home_`). Away rates are derived
 
 **Position Rates** — Base ceiling rate × venue multiplier (if Dome) × primetime multiplier (if applicable). Applied independently for QB, RB, WR, TE, DST.
 
-**Division Outdoor Penalty** — Games between division rivals played outdoors take an 8% reduction on the base rate before position rates are calculated.
+**Division Outdoor Penalty** — Division rival games played outdoors take an 8% reduction on the base rate before position rates are calculated.
 
-**Position Grades**
-
-| Rate | Grade | Recommendation |
-|---|---|---|
-| ≥ 0.40 | A+ | ELITE |
-| ≥ 0.32 | A | STRONG |
-| ≥ 0.24 | B | PLAYABLE |
-| ≥ 0.18 | C | WEAK |
-| < 0.18 | D | AVOID |
-
-**Overall Tier** — The highest grade achieved by any single position in the game.
+**Overall Score** — `Math.max(qb_score, rb_score, wr_score, te_score, dst_score)` — the best position score in the game. Used for `bb_priority` (High ≥ 32, Med ≥ 24, Low < 24).
 
 **Game Type**
 
@@ -112,6 +112,8 @@ Always built from the home team's perspective (`_Home_`). Away rates are derived
 | RB ceiling ≥ 0.28 and QB < 0.25 | Grind |
 | DST ceiling ≥ 0.35 and QB < 0.30 | Blowout |
 | Otherwise | Competitive |
+
+Note: Shootout is checked first so high-ceiling dome games are never misclassified as Blowout.
 
 **Week Tier**
 
@@ -136,9 +138,8 @@ Always built from the home team's perspective (`_Home_`). Away rates are derived
 | `buildEnvironmentKey(...)` | Builds the `VenueType_HomeAway_Prime/Day_Tier` string |
 | `lookupEnvironmentCombination(key, data)` | Returns `{rate, rank, sample}` from lookup table |
 | `calculatePositionRates(baseRate, ...)` | Applies dome and primetime multipliers per position |
-| `assignPositionGrade(rate)` | Rate → A+/A/B/C/D |
+| `assignRecommendation(rate)` | Rate → ELITE / STRONG / PLAYABLE / WEAK / AVOID |
 | `classifyGameType(qbRate, rbRate, dstRate)` | Shootout / Grind / Blowout / Competitive |
-| `determineOverallTier(posGrades)` | Best grade across all positions |
 | `buildHomeAwayCeilingRates()` | Reads Vegas_Enhanced_Performances, builds home/away rate lookup |
 | `updateScheduleWithHomeAwayCeilingRates()` | Adds 8 home/away ceiling rate columns to Schedule_Enriched |
 | `generateQATest(...)` | Writes 10-section diagnostic sheet |
@@ -150,39 +151,64 @@ Always built from the home team's perspective (`_Home_`). Away rates are derived
 
 ### What It Does
 
-Takes Schedule_Enriched and ADP data, maps players to their team's schedule quality, scores every player relative to their position peers, integrates 2025 variance data (from NFL_Dashboard), and produces five output sheets covering player rankings, stacks, team grades, game scores, and draft strategy.
+Takes Schedule_Enriched and ADP data, maps players to their team's schedule quality, scores every player relative to their position peers, integrates 2025 variance data (from NFL_Dashboard), and produces four output sheets covering player rankings, stacks, team quality, and game scores.
 
 ### Key Concepts
 
-**Elite Game Value** — A weighted sum of a team's schedule grades for a position:
+**Elite Game Value** — A weighted sum of a team's schedule for a position, bucketed by rate threshold:
 ```
-A+ × 1.0 + A × 0.6 + B × 0.3 + C × 0.1 + D × 0.0
+(games with rate ≥ 0.40) × 1.0
+(games with rate ≥ 0.32) × 0.6
+(games with rate ≥ 0.24) × 0.3
+(games with rate ≥ 0.18) × 0.1
+(games with rate <  0.18) × 0.0
 ```
-Represents expected ceiling contribution over a 17-game season.
+Represents expected ceiling contribution over a 17-game season. Max = 17.0 (all games elite). Bucketing uses the threshold constants — no grade strings.
 
-**Ceiling Rate Percentiles** — For each position, all 272 games are ranked independently for home rates and independently for away rates. Each game gets a 0–100 score for both home and away. This means home teams and away teams are compared against their own peer group, not each other.
+**Ceiling Rate Percentiles** — For each position, all 272 games are ranked independently for home rates and independently for away rates. Each game gets a 0–100 score for both home and away. Home teams and away teams are compared against their own peer group.
 
-**Schedule Quality** — A player's `schedule_quality` is the sum of their 17 game scores using the correct home or away percentile for each game based on whether their team is home or away that week.
+**Schedule Quality** — Sum of a player's 17 game scores using the correct home or away percentile per week based on whether their team is home or away.
 
 **Elite Games Count** — Games where that player's score ≥ 70 (top 30% of the distribution for their context).
 
-**Value Score** (enhanced formula):
+**Value Score:**
 ```
-value_score = (schedule_percentile × 0.5) + (ceiling_score × 0.3) - (cost_percentile × 0.2)
+value_score = (schedule_percentile × 0.6) + (ceiling_score × 0.4)
 ```
-- `schedule_percentile` — where the player's schedule ranks within their position (0–100)
-- `ceiling_score` — where the player's historical ceiling rate + volatility profile ranks (0–100)
-- `cost_percentile` — where the player's ADP ranks within their position (high ADP = high cost = penalty)
+- `schedule_percentile` — where the player's elite_game_value ranks within their position (0–100)
+- `ceiling_score` — where the player's historical ceiling rate + volatility ranks within their position (0–100)
 
-**Player Type** (from variance data):
+ADP is intentionally excluded from the formula — the ranking reflects "best setup for Best Ball" not "cheapest vs market." ADP and round are visible columns for draft context.
+
+**Value Classes:**
+
+| Score | Class |
+|---|---|
+| > 70 | EXTREME VALUE |
+| > 55 | STRONG VALUE |
+| > 40 | FAIR VALUE |
+| > 25 | SLIGHT REACH |
+| ≤ 25 | AVOID |
+
+**Player Type** (from 2025 Dashboard data):
+
 | Ceiling Rate | Volatility | Type |
 |---|---|---|
 | > 30% | > 60% | Boom/Bust |
 | > 30% | ≥ 40% | Ceiling Play |
 | ≥ 20% | < 40% | Stable |
 | Otherwise | | Low Ceiling |
+| No match | — | No 2025 Data |
 
-**Stack Efficiency** — `shared_schedule_quality / total_stack_cost`. Measures how much schedule value you get per ADP dollar spent on the stack.
+Players with no match in NFL_Dashboard use position baseline variance values and are labeled `No 2025 Data` rather than a misleading ceiling classification.
+
+**Stack Efficiency** — `shared_schedule_quality / total_stack_cost`. Measures schedule value per ADP dollar across the three-player stack.
+
+**Team Stack Composite Score:**
+```
+(best_stack_efficiency × 0.4) + (avg_stack_efficiency × 0.4) + (min(viable_stacks, 10) × 0.2)
+```
+Count of viable stacks is capped at 10 to prevent volume from inflating scores for teams with many mediocre stacks.
 
 ### Function Map
 
@@ -200,10 +226,10 @@ value_score = (schedule_percentile × 0.5) + (ceiling_score × 0.3) - (cost_perc
 | Function | Role |
 |---|---|
 | `getAllTeams()` | Returns all 32 abbreviations |
-| `extractTeamSchedule(team, data)` | Filters schedule to a team's 17 games |
-| `countPositionGrades(schedule, pos)` | Counts A+/A/B/C/D for one position |
-| `calculateEliteGameValue(counts)` | Weighted score from grade distribution |
-| `generateTeamPositionSummary(team, schedule)` | 5 rows (one per position) per team |
+| `extractTeamSchedule(team, data)` | Filters schedule to a team's 17 games (ceiling rates, no grade fields) |
+| `countPositionGrades(schedule, pos)` | Counts games in each rate bucket using threshold constants |
+| `calculateEliteGameValue(counts)` | Weighted score from rate-bucket counts |
+| `generateTeamPositionSummary(team, schedule)` | 5 rows per team including playoff columns |
 | `buildTeamScheduleSummary()` | Writes Team_Schedule_Summary (160 rows) |
 
 **Player Mapping & Value (Tasks 3A/3B)**
@@ -211,7 +237,7 @@ value_score = (schedule_percentile × 0.5) + (ceiling_score × 0.3) - (cost_perc
 | Function | Role |
 |---|---|
 | `filterTopPlayersByPosition(adpData)` | Top QB:32, RB:64, WR:100, TE:32 by ADP |
-| `mapPlayerToSchedule(player, summaries)` | Joins player to team's schedule stats |
+| `mapPlayerToSchedule(player, summaries)` | Joins player to team's schedule stats incl. playoff_score |
 | `buildPlayerScheduleMapping()` | Returns all mapped players |
 | `buildPlayerValueRankings()` | Core function: percentiles → variance → stack data → sorted rankings |
 | `classifyPlayerValue(score)` | EXTREME / STRONG / FAIR / SLIGHT REACH / AVOID |
@@ -225,17 +251,16 @@ value_score = (schedule_percentile × 0.5) + (ceiling_score × 0.3) - (cost_perc
 | `normalizePlayerName(name)` | Strips Jr./Sr./II/III, punctuation for matching |
 | `matchVarianceRecord(player, data)` | Fuzzy name+position match to Dashboard row |
 | `classifyPlayerType(ceilingRate, vol)` | Boom/Bust / Ceiling Play / Stable / Low Ceiling |
-| `applyVarianceMetrics(byPosition, data)` | Attaches ceiling_rate, volatility, ceiling_score, player_type, value_score |
+| `applyVarianceMetrics(byPosition, data)` | Attaches ceiling_rate, volatility, ceiling_score, player_type, value_score; unmatched players get `No 2025 Data` |
 
 **Stack Analysis**
 
 | Function | Role |
 |---|---|
 | `buildCeilingRatePercentiles(scheduleData)` | Returns `{homePercentiles, awayPercentiles}` per position |
-| `enrichWithStackData(byPos, schedule, pcts)` | Adds schedule_quality, elite_games_count, stack_grade, stack_role, best_stack_with |
+| `enrichWithStackData(byPos, schedule, pcts)` | Adds schedule_quality, elite_games_count, stack_role, best_stack_with, stack_strategy |
 | `buildStackTargets(byPosition)` | Generates all 15 3-player combo types per team (ADP < 200 filter) |
-| `computeStackEfficiencyGrade(efficiency)` | A+ (≥8.0) / A (≥6.0) / B (≥4.0) / C (≥2.5) / D |
-| `buildTeamStackRankings(stacks)` | Aggregates stacks by team into composite grade |
+| `buildTeamStackRankings(stacks)` | Aggregates stacks by team, composite score with viable_stacks capped at 10 |
 
 **Output Writers**
 
@@ -243,9 +268,8 @@ value_score = (schedule_percentile × 0.5) + (ceiling_score × 0.3) - (cost_perc
 |---|---|
 | `writePositionValueRankings()` | Position_Value_Rankings — all players, flat cross-position sort by value_score |
 | `writeStackTargets()` | Stack_Targets — all 3-player stacks sorted by efficiency |
-| `writeTeamStackRankings()` | Team_Stack_Rankings — 32 teams with composite score and grade |
+| `writeTeamStackRankings()` | Team_Stack_Rankings — 32 teams with composite score |
 | `writeGameScores()` | Game_Scores — 544 rows with QB/RB/WR/TE percentile scores per team per game |
-| `writeDraftStrategyTiers()` | Draft_Strategy_Tiers — 18 rounds of strategy with top value picks |
 | `generateStackBlueprint()` | Stack_Blueprint — elite-game stacks with player lists and efficiency |
 
 **Menu & Orchestration**
@@ -253,8 +277,8 @@ value_score = (schedule_percentile × 0.5) + (ceiling_score × 0.3) - (cost_perc
 | Function | Role |
 |---|---|
 | `onOpen()` | Builds "🏈 NFL Schedule" and "Best Ball" menus |
-| `runAllSheets()` | Runs all 5 output writers in order |
-| `buildTeamScheduleSummary()` | "Best Ball → Process Schedule" menu item |
+| `runAllSheets()` | Runs all 4 output writers in order |
+| `buildTeamScheduleSummary()` | "Best Ball → Build Team Summary" menu item |
 | `validateModule7Complete()` | 8-test automated validation suite |
 
 ---
@@ -278,7 +302,7 @@ Reads 2025 DFS season data (BigDataBall format), calculates per-player ceiling r
 | L6 CV% | Volatility over last 6 games |
 | 4x Reliable% | % of games inside streaks of 2+ consecutive 4x hits |
 
-**Filters:** Players need ≥ 4 games with valid salary and DK points. DST positions are excluded. Position assigned as most frequent across all appearances.
+**Filters:** Players need ≥ 4 games with valid salary and DK points. DST excluded. Position assigned as most frequent across all appearances.
 
 ### Function Map
 
@@ -299,9 +323,9 @@ The 47-column output of `processSchedule()`:
 | Enrichment (6) | `venue_name`, `venue_type`, `is_primetime`, `primetime_slot`, `is_division`, `week_tier` |
 | Vegas (9) | `total`, `spread`, `home_moneyline`, `away_moneyline`, `favorite_team`, `underdog_team`, `vegas_bucket`, `home_itt`, `away_itt` — blank until lines are available |
 | Environment (3) | `environment_key`, `environment_rate`, `environment_rank` |
-| Position grades (15) | `{pos}_grade`, `{pos}_ceiling_rate`, `{pos}_recommendation` × 5 positions |
+| Position scores (15) | `{pos}_score` (int 0–100), `{pos}_ceiling_rate` (decimal), `{pos}_recommendation` (text) × 5 positions |
 | Stack analysis (3) | `stack_requirements`, `onslaught_eligible`, `correlation_notes` |
-| Game classification (3) | `overall_tier`, `game_type`, `bb_priority` |
+| Game classification (3) | `overall_score`, `game_type`, `bb_priority` |
 | Home/Away rates (8) | `home_{pos}_ceiling_rate`, `away_{pos}_ceiling_rate` × QB/RB/WR/TE — added by Fix Home/Away Rates |
 
 ---
@@ -310,32 +334,21 @@ The 47-column output of `processSchedule()`:
 
 Weeks 15, 16, and 17 are the standard Best Ball playoff weeks. These columns are **additive only** — they do not affect value_score, rankings, or sort order.
 
-### Team_Schedule_Summary (3 new columns)
+### Team_Schedule_Summary (3 columns)
 
 | Column | Definition |
 |---|---|
-| `playoff_a_plus` | Count of A+ grades in weeks 15–17 for that team/position |
-| `playoff_a` | Count of A grades in weeks 15–17 |
-| `playoff_score` | `calculateEliteGameValue()` run on weeks 15–17 only (max = 3.0) |
+| `playoff_a_plus` | Games in weeks 15–17 where `{pos}_ceiling_rate ≥ ELITE_THRESHOLD` |
+| `playoff_a` | Games in weeks 15–17 where rate ≥ STRONG but < ELITE |
+| `playoff_score` | `calculateEliteGameValue()` on weeks 15–17 only (max = 3.0) |
 
-### Position_Value_Rankings (2 new columns)
+### Position_Value_Rankings (1 column)
 
 | Column | Definition |
 |---|---|
-| `playoff_score` | Team's playoff_score for the player's position (passed through from Team_Schedule_Summary) |
-| `playoff_grade` | Grade based on playoff_score |
+| `playoff_score` | Team's playoff_score for the player's position (0–3.0 scale) |
 
-**Playoff Grade Thresholds**
-
-| Score | Grade |
-|---|---|
-| ≥ 2.5 | A+ |
-| ≥ 2.0 | A |
-| ≥ 1.5 | B |
-| ≥ 1.0 | C |
-| < 1.0 | D |
-
-A team with three A+ playoff weeks scores 3.0 (perfect). A team with two A weeks scores 1.2. The grade gives you a quick filter: target A+ and A playoff teams when tiebreaking between otherwise similar players.
+A team with three elite-threshold playoff weeks scores 3.0. A team with all weak games scores near 0. Use as a tiebreaker — players with similar value_scores on teams with high playoff_score are preferable for Best Ball.
 
 ---
 
@@ -343,14 +356,13 @@ A team with three A+ playoff weeks scores 3.0 (perfect). A team with two A weeks
 
 ```
 Schedule sheet
-  → processSchedule() → Schedule_Enriched (position grades per game)
+  → processSchedule() → Schedule_Enriched (position scores + ceiling rates per game)
                       → buildTeamScheduleSummary() → Team_Schedule_Summary
                                                     → buildPlayerScheduleMapping()
                                                     → buildPlayerValueRankings()
                                                          ├── schedule_percentile (rank by elite_game_value)
-                                                         ├── cost_percentile (rank by ADP)
                                                          ├── ceiling_score (from NFL_Dashboard variance)
-                                                         └── value_score = sched×0.5 + ceiling×0.3 - cost×0.2
+                                                         └── value_score = sched×0.6 + ceiling×0.4
 ```
 
-A player with an elite schedule on a dome team who is underpriced in ADP gets a high value_score. A player with a weak schedule who is overpriced relative to peers gets a low one — regardless of name value.
+A player with an elite schedule on a dome team ranks highly regardless of ADP. ADP is a visible column for draft context but does not penalize the score — the list is a "best setup" board, not a value-vs-market screener.
