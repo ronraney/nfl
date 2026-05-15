@@ -313,7 +313,8 @@ function writePositionValueRankings() {
     'schedule_pct', 'cost_pct', 'value_score',
     'schedule_quality', 'elite_games_count', 'stack_grade', 'stack_role', 'best_stack_with', 'stack_strategy',
     'value_class', 'recommendation',
-    'ceiling_rate', 'volatility', 'ceiling_score', 'player_type', 'l6_ceiling'
+    'ceiling_rate', 'volatility', 'ceiling_score', 'player_type', 'l6_ceiling',
+    'playoff_score', 'playoff_grade'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -354,7 +355,9 @@ function writePositionValueRankings() {
     p.volatility    != null ? Math.round(p.volatility    * 10) / 10 : '',
     p.ceiling_score != null ? p.ceiling_score : '',
     p.player_type   || '',
-    p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : ''
+    p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : '',
+    p.playoff_score != null ? Math.round(p.playoff_score * 100) / 100 : 0,
+    assignPlayoffGrade(p.playoff_score || 0)
   ]);
 
   if (allRows.length > 0) {
@@ -451,6 +454,14 @@ function computeStackEfficiencyGrade(efficiency) {
   if (efficiency >= 6.0) return 'A';
   if (efficiency >= 4.0) return 'B';
   if (efficiency >= 2.5) return 'C';
+  return 'D';
+}
+
+function assignPlayoffGrade(score) {
+  if (score >= 2.5) return 'A+';
+  if (score >= 2.0) return 'A';
+  if (score >= 1.5) return 'B';
+  if (score >= 1.0) return 'C';
   return 'D';
 }
 
@@ -907,7 +918,8 @@ function mapPlayerToSchedule(player, teamSummaries) {
     a_plus_games: match.a_plus_games,
     a_games: match.a_games,
     b_games: match.b_games,
-    elite_game_value: match.elite_game_value
+    elite_game_value: match.elite_game_value,
+    playoff_score: match.playoff_score || 0
   };
 }
 
@@ -1014,10 +1026,16 @@ function calculateEliteGameValue(gradeCounts) {
 function generateTeamPositionSummary(team, teamSchedule) {
   const positions = ['QB', 'RB', 'WR', 'TE', 'DST'];
   const summary = [];
+  const playoffGames = teamSchedule.filter(g => {
+    const w = parseInt(g.week);
+    return w === 15 || w === 16 || w === 17;
+  });
 
   for (const position of positions) {
-    const gradeCounts = countPositionGrades(teamSchedule, position);
-    const eliteValue = calculateEliteGameValue(gradeCounts);
+    const gradeCounts   = countPositionGrades(teamSchedule, position);
+    const eliteValue    = calculateEliteGameValue(gradeCounts);
+    const playoffCounts = countPositionGrades(playoffGames, position);
+    const playoffScore  = calculateEliteGameValue(playoffCounts);
 
     summary.push({
       team: team,
@@ -1028,7 +1046,10 @@ function generateTeamPositionSummary(team, teamSchedule) {
       b_games: gradeCounts.b,
       c_games: gradeCounts.c,
       d_games: gradeCounts.d,
-      elite_game_value: Math.round(eliteValue * 10) / 10
+      elite_game_value: Math.round(eliteValue * 10) / 10,
+      playoff_a_plus: playoffCounts.a_plus,
+      playoff_a:      playoffCounts.a,
+      playoff_score:  Math.round(playoffScore * 100) / 100
     });
   }
 
@@ -1057,14 +1078,16 @@ function buildTeamScheduleSummary() {
 
   const headers = [
     'team', 'position', 'total_games', 'a_plus_games', 'a_games',
-    'b_games', 'c_games', 'd_games', 'elite_game_value'
+    'b_games', 'c_games', 'd_games', 'elite_game_value',
+    'playoff_a_plus', 'playoff_a', 'playoff_score'
   ];
 
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
 
   const rows = allSummaries.map(s => [
     s.team, s.position, s.total_games, s.a_plus_games, s.a_games,
-    s.b_games, s.c_games, s.d_games, s.elite_game_value
+    s.b_games, s.c_games, s.d_games, s.elite_game_value,
+    s.playoff_a_plus, s.playoff_a, s.playoff_score
   ]);
 
   sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
