@@ -1,10 +1,6 @@
 // MODULE 7: BEST BALL DRAFT VALUE ANALYZER
 // Task 1A: Data Access and Validation
-
-const ELITE_THRESHOLD    = 0.40;
-const STRONG_THRESHOLD   = 0.32;
-const PLAYABLE_THRESHOLD = 0.24;
-const WEAK_THRESHOLD     = 0.18;
+// Threshold constants defined in module_6_schedule.js (shared global scope)
 
 function getScheduleData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
