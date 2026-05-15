@@ -563,16 +563,6 @@ function writeStackTargets() {
   });
 
   if (rows.length > 0) {
-    const ecrLookup = loadEcrLookup();
-    const ecrMainIdx = headers.indexOf('ecr_vs_adp');
-    const ecrAIdx    = headers.indexOf('ecr_vs_adp_a');
-    const ecrBIdx    = headers.indexOf('ecr_vs_adp_b');
-    allPlayers.forEach((p, i) => {
-      const partners = (p.best_stack_with || '').split(', ').filter(Boolean);
-      rows[i][ecrMainIdx] = ecrLookup[p.player_name]  ?? '';
-      rows[i][ecrAIdx]    = ecrLookup[partners[0]]    ?? '';
-      rows[i][ecrBIdx]    = ecrLookup[partners[1]]    ?? '';
-    });
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
 
