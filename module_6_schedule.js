@@ -36,9 +36,9 @@ function processSchedule() {
     const game = scheduleData[i];
 
     // Skip bye weeks, blank rows, and PFR separator rows
-    const winner = String(game["Winner/tie"] || "").trim();
-    const loser  = String(game["Loser/tie"]  || "").trim();
-    if (!winner || !loser) continue;
+    const homeTm = String(game["HomeTm"] || "").trim();
+    const visTm  = String(game["VisTm"]  || "").trim();
+    if (!homeTm || !visTm) continue;
 
     const homeAway  = parseHomeAway(game);
     const homeTeam  = lookupTeamAbbr(homeAway.home, teamsData, i + 2);
@@ -157,13 +157,7 @@ function getSheetData(sheet) {
 // Parsing
 
 function parseHomeAway(game) {
-  const winner = game["Winner/tie"];
-  const loser  = game["Loser/tie"];
-  let hasAt = false;
-  for (const key of Object.keys(game)) {
-    if (game[key] === "@") { hasAt = true; break; }
-  }
-  return hasAt ? { home: loser, away: winner } : { home: winner, away: loser };
+  return { home: game["HomeTm"], away: game["VisTm"] };
 }
 
 function parseTimeHour(time) {
