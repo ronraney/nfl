@@ -1,6 +1,11 @@
 // MODULE 7: BEST BALL DRAFT VALUE ANALYZER
 // Task 1A: Data Access and Validation
 
+const ELITE_THRESHOLD    = 0.40;
+const STRONG_THRESHOLD   = 0.32;
+const PLAYABLE_THRESHOLD = 0.24;
+const WEAK_THRESHOLD     = 0.18;
+
 function getScheduleData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName("Schedule_Enriched");
@@ -141,16 +146,11 @@ function testTask1A() {
 // ============================================================
 
 function findStackableGames(scheduleData) {
-  return scheduleData.filter(game => {
-    const aPlusCount = [
-      game.qb_grade,
-      game.rb_grade,
-      game.wr_grade,
-      game.te_grade
-    ].filter(g => g === 'A+').length;
-
-    return aPlusCount >= 3;
-  }).map(game => ({
+  const isElite = r => parseFloat(r) >= ELITE_THRESHOLD;
+  return scheduleData.filter(game =>
+    [game.qb_ceiling_rate, game.rb_ceiling_rate, game.wr_ceiling_rate, game.te_ceiling_rate]
+      .filter(isElite).length >= 3
+  ).map(game => ({
     game_id: game.game_id,
     week: game.week,
     matchup: `${game.away_team} @ ${game.home_team}`,
@@ -158,12 +158,12 @@ function findStackableGames(scheduleData) {
     away_team: game.away_team,
     environment_key: game.environment_key,
     environment_rate: game.environment_rate,
-    qb_grade: game.qb_grade,
-    rb_grade: game.rb_grade,
-    wr_grade: game.wr_grade,
-    te_grade: game.te_grade,
-    a_plus_count: [game.qb_grade, game.rb_grade, game.wr_grade, game.te_grade]
-                    .filter(g => g === 'A+').length,
+    qb_score: game.qb_score,
+    rb_score: game.rb_score,
+    wr_score: game.wr_score,
+    te_score: game.te_score,
+    a_plus_count: [game.qb_ceiling_rate, game.rb_ceiling_rate, game.wr_ceiling_rate, game.te_ceiling_rate]
+                    .filter(isElite).length,
     game_type: game.game_type
   }));
 }
@@ -185,12 +185,12 @@ function buildStackRecommendation(game, rankings) {
     players: []
   };
 
-  if (game.qb_grade === 'A+') {
+  if (parseFloat(game.qb_ceiling_rate || game.qb_score / 100) >= ELITE_THRESHOLD) {
     const qb = findBestPlayer(game.home_team, 'QB', rankings);
     if (qb) stack.players.push(qb);
   }
 
-  if (game.wr_grade === 'A+') {
+  if (parseFloat(game.wr_ceiling_rate || game.wr_score / 100) >= ELITE_THRESHOLD) {
     const homeWRs = (rankings.WR || []).filter(p => p.team === game.home_team);
     homeWRs.sort((a, b) => b.value_score - a.value_score);
     stack.players.push(...homeWRs.slice(0, 2));
@@ -311,10 +311,10 @@ function writePositionValueRankings() {
     'rank', 'position', 'player_name', 'team', 'adp', 'round',
     'a_plus_games', 'a_games', 'b_games', 'elite_game_value',
     'schedule_pct', 'cost_pct', 'value_score',
-    'schedule_quality', 'elite_games_count', 'stack_grade', 'stack_role', 'best_stack_with', 'stack_strategy',
+    'schedule_quality', 'elite_games_count', 'stack_role', 'best_stack_with', 'stack_strategy',
     'value_class', 'recommendation',
     'ceiling_rate', 'volatility', 'ceiling_score', 'player_type', 'l6_ceiling',
-    'playoff_score', 'playoff_grade'
+    'playoff_score'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -345,7 +345,6 @@ function writePositionValueRankings() {
     p.value_score,
     p.schedule_quality,
     p.elite_games_count,
-    p.stack_grade,
     p.stack_role,
     p.best_stack_with,
     p.stack_strategy,
@@ -356,18 +355,17 @@ function writePositionValueRankings() {
     p.ceiling_score != null ? p.ceiling_score : '',
     p.player_type   || '',
     p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : '',
-    p.playoff_score != null ? Math.round(p.playoff_score * 100) / 100 : 0,
-    assignPlayoffGrade(p.playoff_score || 0)
+    p.playoff_score != null ? Math.round(p.playoff_score * 100) / 100 : 0
   ]);
 
   if (allRows.length > 0) {
     sheet.getRange(2, 1, allRows.length, headers.length).setValues(allRows);
 
     allRows.forEach((row, i) => {
-      const cell = sheet.getRange(2 + i, 20);
-      if (row[19] === "EXTREME VALUE")     cell.setBackground('#00cc44');
-      else if (row[19] === "STRONG VALUE") cell.setBackground('#90ee90');
-      else if (row[19] === "AVOID")        cell.setBackground('#ffcccb');
+      const cell = sheet.getRange(2 + i, 19);
+      if (row[18] === "EXTREME VALUE")     cell.setBackground('#00cc44');
+      else if (row[18] === "STRONG VALUE") cell.setBackground('#90ee90');
+      else if (row[18] === "AVOID")        cell.setBackground('#ffcccb');
     });
   }
 
@@ -457,14 +455,6 @@ function computeStackEfficiencyGrade(efficiency) {
   return 'D';
 }
 
-function assignPlayoffGrade(score) {
-  // Thresholds calibrated to Late-tier weeks 15-17 where max achievable ~1.8
-  if (score >= 1.5) return 'A+';
-  if (score >= 1.0) return 'A';
-  if (score >= 0.6) return 'B';
-  if (score >= 0.3) return 'C';
-  return 'D';
-}
 
 function computeStackDraftStrategy(grade) {
   if (grade === 'A+') return 'Priority target - build entire draft around this';
@@ -569,7 +559,7 @@ function writeStackTargets() {
     'pc1_name', 'pc1_position', 'pc1_adp',
     'pc2_name', 'pc2_position', 'pc2_adp',
     'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency',
-    'stack_grade', 'draft_strategy'
+    'draft_strategy'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -584,17 +574,11 @@ function writeStackTargets() {
     s.pc1_name, s.pc1_position, s.pc1_adp,
     s.pc2_name, s.pc2_position, s.pc2_adp,
     s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency,
-    s.stack_grade, s.draft_strategy
+    s.draft_strategy
   ]);
 
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
-
-    const gradeColors = { 'A+': '#00cc44', 'A': '#90ee90', 'B': '#ffffcc', 'C': '#ffcccb', 'D': '#ffcccb' };
-    rows.forEach((row, i) => {
-      const color = gradeColors[row[13]];
-      if (color) sheet.getRange(i + 2, 14).setBackground(color);
-    });
   }
 
   sheet.autoResizeColumns(1, headers.length);
@@ -1000,16 +984,16 @@ function testTask3A() {
 // ============================================================
 
 function countPositionGrades(teamSchedule, position) {
-  const gradeField = `${position.toLowerCase()}_grade`;
-  const grades = teamSchedule.map(game => game[gradeField]);
+  const rateField = `${position.toLowerCase()}_ceiling_rate`;
+  const rates = teamSchedule.map(game => parseFloat(game[rateField]) || 0);
 
   return {
-    total_games: grades.length,
-    a_plus: grades.filter(g => g === 'A+').length,
-    a: grades.filter(g => g === 'A').length,
-    b: grades.filter(g => g === 'B').length,
-    c: grades.filter(g => g === 'C').length,
-    d: grades.filter(g => g === 'D').length
+    total_games: rates.length,
+    a_plus: rates.filter(r => r >= ELITE_THRESHOLD).length,
+    a:      rates.filter(r => r >= STRONG_THRESHOLD   && r < ELITE_THRESHOLD).length,
+    b:      rates.filter(r => r >= PLAYABLE_THRESHOLD && r < STRONG_THRESHOLD).length,
+    c:      rates.filter(r => r >= WEAK_THRESHOLD     && r < PLAYABLE_THRESHOLD).length,
+    d:      rates.filter(r => r < WEAK_THRESHOLD).length
   };
 }
 
@@ -1167,15 +1151,10 @@ function extractTeamSchedule(team, scheduleData) {
         venue_type: game.venue_type,
         is_primetime: game.is_primetime,
         is_division: game.is_division,
-        qb_grade: game.qb_grade,
         qb_ceiling_rate: game.qb_ceiling_rate,
-        rb_grade: game.rb_grade,
         rb_ceiling_rate: game.rb_ceiling_rate,
-        wr_grade: game.wr_grade,
         wr_ceiling_rate: game.wr_ceiling_rate,
-        te_grade: game.te_grade,
         te_ceiling_rate: game.te_ceiling_rate,
-        dst_grade: game.dst_grade,
         dst_ceiling_rate: game.dst_ceiling_rate,
         environment_key: game.environment_key,
         environment_rate: game.environment_rate,
@@ -1303,7 +1282,7 @@ function writeTeamStackRankings() {
 
   const headers = [
     'rank', 'team', 'best_stack_eff', 'avg_stack_eff', 'viable_stacks',
-    'a_plus_count', 'a_count', 'b_count', 'composite_score', 'team_grade', 'recommendation'
+    'a_plus_count', 'a_count', 'b_count', 'composite_score', 'recommendation'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -1321,18 +1300,11 @@ function writeTeamStackRankings() {
     t.a_count,
     t.b_count,
     t.composite_score,
-    t.team_grade,
     t.recommendation
   ]);
 
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
-
-    const gradeColors = { 'A+': '#00cc44', 'A': '#90ee90', 'B': '#ffffcc', 'C': '#ffcccb', 'D': '#ffcccb' };
-    rows.forEach((row, i) => {
-      const color = gradeColors[row[9]];
-      if (color) sheet.getRange(i + 2, 10).setBackground(color);
-    });
   }
 
   sheet.autoResizeColumns(1, headers.length);

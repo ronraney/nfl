@@ -12,6 +12,11 @@ function openQATest() {
   }
 }
 
+const ELITE_THRESHOLD    = 0.40;
+const STRONG_THRESHOLD   = 0.32;
+const PLAYABLE_THRESHOLD = 0.24;
+const WEAK_THRESHOLD     = 0.18;
+
 function processSchedule() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
@@ -57,13 +62,12 @@ function processSchedule() {
       ? envData.rate * 0.92
       : envData.rate;
 
-    // Position-specific rates, grades, and recommendations
+    // Position-specific rates and recommendations
     const posRates = calculatePositionRates(baseRate, venue.venue_type, primetime.is_primetime, posMultData);
     const positions = ['QB', 'RB', 'WR', 'TE', 'DST'];
-    const posGrades = {}, posRecs = {};
+    const posRecs = {};
     for (const pos of positions) {
-      posGrades[pos] = assignPositionGrade(posRates[pos]);
-      posRecs[pos]   = assignRecommendation(posRates[pos]);
+      posRecs[pos] = assignRecommendation(posRates[pos]);
     }
 
     // Stack analysis
@@ -72,10 +76,9 @@ function processSchedule() {
     const corrNotes  = generateCorrelationNotes(envData.rate, venue.venue_type);
 
     // Game classification
-    const gameType    = classifyGameType(posRates.QB, posRates.RB, posRates.DST);
-    const overallTier = determineOverallTier(posGrades);
-    const bbPriority  = (overallTier === "A+" || overallTier === "A") ? "High"
-                      : (overallTier === "B") ? "Med" : "Low";
+    const gameType     = classifyGameType(posRates.QB, posRates.RB, posRates.DST);
+    const overallScore = Math.round(Math.max(posRates.QB, posRates.RB, posRates.WR, posRates.TE, posRates.DST) * 100);
+    const bbPriority   = overallScore >= 32 ? "High" : overallScore >= 24 ? "Med" : "Low";
 
     processedGames.push({
       // Base schedule (8)
@@ -106,12 +109,12 @@ function processSchedule() {
       environment_rate: envData.rate,
       environment_rank: envData.rank,
 
-      // Position grades (15)
-      qb_grade:  posGrades.QB,  qb_ceiling_rate:  posRates.QB,  qb_recommendation:  posRecs.QB,
-      rb_grade:  posGrades.RB,  rb_ceiling_rate:  posRates.RB,  rb_recommendation:  posRecs.RB,
-      wr_grade:  posGrades.WR,  wr_ceiling_rate:  posRates.WR,  wr_recommendation:  posRecs.WR,
-      te_grade:  posGrades.TE,  te_ceiling_rate:  posRates.TE,  te_recommendation:  posRecs.TE,
-      dst_grade: posGrades.DST, dst_ceiling_rate: posRates.DST, dst_recommendation: posRecs.DST,
+      // Position scores (15)
+      qb_score:  Math.round(posRates.QB  * 100), qb_ceiling_rate:  posRates.QB,  qb_recommendation:  posRecs.QB,
+      rb_score:  Math.round(posRates.RB  * 100), rb_ceiling_rate:  posRates.RB,  rb_recommendation:  posRecs.RB,
+      wr_score:  Math.round(posRates.WR  * 100), wr_ceiling_rate:  posRates.WR,  wr_recommendation:  posRecs.WR,
+      te_score:  Math.round(posRates.TE  * 100), te_ceiling_rate:  posRates.TE,  te_recommendation:  posRecs.TE,
+      dst_score: Math.round(posRates.DST * 100), dst_ceiling_rate: posRates.DST, dst_recommendation: posRecs.DST,
 
       // Stack analysis (3)
       stack_requirements: stackReqs,
@@ -119,9 +122,9 @@ function processSchedule() {
       correlation_notes:  corrNotes,
 
       // Game classification (3)
-      overall_tier: overallTier,
-      game_type:    gameType,
-      bb_priority:  bbPriority
+      overall_score: overallScore,
+      game_type:     gameType,
+      bb_priority:   bbPriority
     });
   }
 
@@ -285,14 +288,6 @@ function getMultiplier(position, factor, value, posMultData) {
   return match ? Number(match.multiplier) : 1.00;
 }
 
-function assignPositionGrade(rate) {
-  if (rate >= 0.40) return "A+";
-  if (rate >= 0.32) return "A";
-  if (rate >= 0.24) return "B";
-  if (rate >= 0.18) return "C";
-  return "D";
-}
-
 function assignRecommendation(rate) {
   if (rate >= 0.40) return "ELITE";
   if (rate >= 0.32) return "STRONG";
@@ -333,13 +328,6 @@ function classifyGameType(qbRate, rbRate, dstRate) {
   return "Competitive";
 }
 
-function determineOverallTier(posGrades) {
-  for (const tier of ["A+", "A", "B", "C", "D"]) {
-    if (Object.values(posGrades).includes(tier)) return tier;
-  }
-  return "D";
-}
-
 // ---------------------------------------------------------------------------
 // Output: Schedule_Enriched (47 columns)
 
@@ -364,16 +352,16 @@ function writeScheduleEnriched(ss, games) {
     "home_itt", "away_itt",
     // Environment context (3)
     "environment_key", "environment_rate", "environment_rank",
-    // Position grades (15)
-    "qb_grade",  "qb_ceiling_rate",  "qb_recommendation",
-    "rb_grade",  "rb_ceiling_rate",  "rb_recommendation",
-    "wr_grade",  "wr_ceiling_rate",  "wr_recommendation",
-    "te_grade",  "te_ceiling_rate",  "te_recommendation",
-    "dst_grade", "dst_ceiling_rate", "dst_recommendation",
+    // Position scores (15)
+    "qb_score",  "qb_ceiling_rate",  "qb_recommendation",
+    "rb_score",  "rb_ceiling_rate",  "rb_recommendation",
+    "wr_score",  "wr_ceiling_rate",  "wr_recommendation",
+    "te_score",  "te_ceiling_rate",  "te_recommendation",
+    "dst_score", "dst_ceiling_rate", "dst_recommendation",
     // Stack analysis (3)
     "stack_requirements", "onslaught_eligible", "correlation_notes",
     // Game classification (3)
-    "overall_tier", "game_type", "bb_priority"
+    "overall_score", "game_type", "bb_priority"
   ];
   // Total: 47 columns
 
@@ -410,14 +398,14 @@ function generateQATest(ss, originalData, processedGames, teamsData) {
   sheet.getRange(row, 1).setValue("[ SAMPLE GAME TRANSFORMATIONS ]").setFontWeight("bold");
   row += 2;
   sheet.getRange(row, 1, 1, 7).setValues([[
-    "Week", "Home Team", "Away Team", "Venue Type", "Is Division", "Env Key", "Overall Tier"
+    "Week", "Home Team", "Away Team", "Venue Type", "Is Division", "Env Key", "Overall Score"
   ]]).setFontWeight("bold");
   row++;
   for (const game of processedGames.slice(0, 10)) {
     sheet.getRange(row, 1, 1, 7).setValues([[
       game.week, game.home_team, game.away_team,
       game.venue_type, game.is_division ? "YES" : "NO",
-      game.environment_key, game.overall_tier
+      game.environment_key, game.overall_score
     ]]);
     row++;
   }
@@ -481,34 +469,39 @@ function generateQATest(ss, originalData, processedGames, teamsData) {
   sheet.getRange(row, 1).setValue("[ TOP 10 GAMES (Environment Rate) ]").setFontWeight("bold");
   row += 2;
   sheet.getRange(row, 1, 1, 6).setValues([[
-    "Week", "Matchup", "Env Key", "Env Rate", "Env Rank", "Overall Tier"
+    "Week", "Matchup", "Env Key", "Env Rate", "Env Rank", "Overall Score"
   ]]).setFontWeight("bold");
   row++;
   for (const game of top10) {
     sheet.getRange(row, 1, 1, 6).setValues([[
       game.week, `${game.away_team} @ ${game.home_team}`,
       game.environment_key, game.environment_rate,
-      game.environment_rank, game.overall_tier
+      game.environment_rank, game.overall_score
     ]]);
     row++;
   }
   row += 2;
 
-  // ── Section 7: Overall Tier Distribution ──────────────────────────────
-  sheet.getRange(row, 1).setValue("[ OVERALL TIER DISTRIBUTION ]").setFontWeight("bold");
+  // ── Section 7: Overall Score Distribution ─────────────────────────────
+  sheet.getRange(row, 1).setValue("[ OVERALL SCORE DISTRIBUTION ]").setFontWeight("bold");
   row += 2;
-  sheet.getRange(row, 1, 1, 2).setValues([["Tier", "Count"]]).setFontWeight("bold");
+  sheet.getRange(row, 1, 1, 2).setValues([["Score Range", "Count"]]).setFontWeight("bold");
   row++;
-  for (const tier of ["A+", "A", "B", "C", "D"]) {
-    sheet.getRange(row, 1, 1, 2).setValues([[
-      tier, processedGames.filter(g => g.overall_tier === tier).length
-    ]]);
+  const scoreBuckets = [
+    [`≥ ${Math.round(ELITE_THRESHOLD * 100)} (Elite)`,    processedGames.filter(g => g.overall_score >= Math.round(ELITE_THRESHOLD    * 100)).length],
+    [`≥ ${Math.round(STRONG_THRESHOLD * 100)} (Strong)`,  processedGames.filter(g => g.overall_score >= Math.round(STRONG_THRESHOLD   * 100) && g.overall_score < Math.round(ELITE_THRESHOLD    * 100)).length],
+    [`≥ ${Math.round(PLAYABLE_THRESHOLD * 100)} (Playable)`, processedGames.filter(g => g.overall_score >= Math.round(PLAYABLE_THRESHOLD * 100) && g.overall_score < Math.round(STRONG_THRESHOLD   * 100)).length],
+    [`≥ ${Math.round(WEAK_THRESHOLD * 100)} (Weak)`,      processedGames.filter(g => g.overall_score >= Math.round(WEAK_THRESHOLD     * 100) && g.overall_score < Math.round(PLAYABLE_THRESHOLD * 100)).length],
+    [`< ${Math.round(WEAK_THRESHOLD * 100)} (Low)`,       processedGames.filter(g => g.overall_score <  Math.round(WEAK_THRESHOLD     * 100)).length]
+  ];
+  for (const [label, count] of scoreBuckets) {
+    sheet.getRange(row, 1, 1, 2).setValues([[label, count]]);
     row++;
   }
   row += 2;
 
-  // ── Section 8: Position-Specific Grades (Top 10) ──────────────────────
-  sheet.getRange(row, 1).setValue("[ POSITION-SPECIFIC GRADES (Top 10 by Env Rate) ]").setFontWeight("bold");
+  // ── Section 8: Position-Specific Scores (Top 10) ─────────────────────
+  sheet.getRange(row, 1).setValue("[ POSITION-SPECIFIC SCORES (Top 10 by Env Rate) ]").setFontWeight("bold");
   row += 2;
   sheet.getRange(row, 1, 1, 8).setValues([[
     "Week", "Matchup", "Env Rate", "QB", "RB", "WR", "TE", "DST"
@@ -518,7 +511,7 @@ function generateQATest(ss, originalData, processedGames, teamsData) {
     sheet.getRange(row, 1, 1, 8).setValues([[
       game.week, `${game.away_team} @ ${game.home_team}`,
       game.environment_rate,
-      game.qb_grade, game.rb_grade, game.wr_grade, game.te_grade, game.dst_grade
+      game.qb_score, game.rb_score, game.wr_score, game.te_score, game.dst_score
     ]]);
     row++;
   }
