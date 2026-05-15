@@ -1456,6 +1456,8 @@ function writeDraftStrategyTiers() {
   const roundByName = {};
   allPlayers.forEach(p => { roundByName[p.player_name] = p.round; });
 
+  const ecrLookup = loadEcrLookup();
+
   const rows = allPlayers.map(p => {
     const partners = (p.best_stack_with || '').split(', ').filter(Boolean);
     const nameA  = partners[0] || '';
@@ -1466,17 +1468,17 @@ function writeDraftStrategyTiers() {
       p.player_name,
       p.team,
       p.adp,
-      '',  // ecr_vs_adp — formula written below (col F)
+      ecrLookup[p.player_name] || '',
       p.value_score,
       p.schedule_quality,
       p.playoff_score != null ? p.playoff_score : 0,
       p.elite_games,
       nameA,
       nameA ? (roundByName[nameA] || '') : '',
-      '',  // ecr_vs_adp_a — formula written below (col M)
+      nameA ? (ecrLookup[nameA] || '') : '',
       nameB,
       nameB ? (roundByName[nameB] || '') : '',
-      ''   // ecr_vs_adp_b — formula written below (col P)
+      nameB ? (ecrLookup[nameB] || '') : ''
     ];
   });
 
