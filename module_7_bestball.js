@@ -358,7 +358,7 @@ function writePositionValueRankings() {
     // XLOOKUP: player_name (col C) → Rankings sheet "ECR VS ADP" column
     const adpEcrCol = headers.indexOf('adp_ecr') + 1;
     const formulas = allRows.map((_, i) => [
-      `=XLOOKUP(C${i + 2},Rankings!C:C,INDEX(Rankings!A:Z,0,MATCH("ECR VS ADP",Rankings!1:1,0)),"")`
+      `=XLOOKUP(C${i + 2},Rankings!C:C,Rankings!G:G,"")`
     ]);
     sheet.getRange(2, adpEcrCol, formulas.length, 1).setFormulas(formulas);
   }
@@ -550,7 +550,7 @@ function writeStackTargets() {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
 
     const ecr = (lookupCol, row) =>
-      `=XLOOKUP(${lookupCol}${row},Rankings!C:C,INDEX(Rankings!A:Z,0,MATCH("ECR VS ADP",Rankings!1:1,0)),"")`;
+      `=XLOOKUP(${lookupCol}${row},Rankings!C:C,Rankings!G:G,"")`;
 
     const fMain = [], fA = [], fB = [];
     rows.forEach((_, i) => {
