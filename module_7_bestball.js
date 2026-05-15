@@ -316,66 +316,61 @@ function writePositionValueRankings() {
     'ceiling_rate', 'volatility', 'ceiling_score', 'player_type', 'l6_ceiling'
   ];
 
-  let currentRow = 1;
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight('bold')
+    .setBackground('#efefef');
+
   const positions = ['QB', 'RB', 'WR', 'TE'];
-
+  const allPlayers = [];
   for (const position of positions) {
-    sheet.getRange(currentRow, 1).setValue(`[ ${position} RANKINGS ]`).setFontWeight('bold');
-    currentRow += 2;
+    rankings[position].forEach(p => allPlayers.push(p));
+  }
+  allPlayers.sort((a, b) => b.value_score - a.value_score);
 
-    sheet.getRange(currentRow, 1, 1, headers.length)
-      .setValues([headers])
-      .setFontWeight('bold')
-      .setBackground('#efefef');
-    currentRow++;
+  const allRows = allPlayers.map((p, i) => [
+    i + 1,
+    p.position,
+    p.player_name,
+    p.team,
+    p.adp,
+    p.round,
+    p.a_plus_games,
+    p.a_games,
+    p.b_games,
+    p.elite_game_value,
+    p.schedule_percentile,
+    p.cost_percentile,
+    p.value_score,
+    p.schedule_quality,
+    p.elite_games_count,
+    p.stack_grade,
+    p.stack_role,
+    p.best_stack_with,
+    p.stack_strategy,
+    p.value_class,
+    p.recommendation,
+    p.ceiling_rate  != null ? Math.round(p.ceiling_rate  * 10) / 10 : '',
+    p.volatility    != null ? Math.round(p.volatility    * 10) / 10 : '',
+    p.ceiling_score != null ? p.ceiling_score : '',
+    p.player_type   || '',
+    p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : ''
+  ]);
 
-    const players = rankings[position];
-    const rows = players.map((p, i) => [
-      i + 1,
-      p.position,
-      p.player_name,
-      p.team,
-      p.adp,
-      p.round,
-      p.a_plus_games,
-      p.a_games,
-      p.b_games,
-      p.elite_game_value,
-      p.schedule_percentile,
-      p.cost_percentile,
-      p.value_score,
-      p.schedule_quality,
-      p.elite_games_count,
-      p.stack_grade,
-      p.stack_role,
-      p.best_stack_with,
-      p.stack_strategy,
-      p.value_class,
-      p.recommendation,
-      p.ceiling_rate  != null ? Math.round(p.ceiling_rate  * 10) / 10 : '',
-      p.volatility    != null ? Math.round(p.volatility    * 10) / 10 : '',
-      p.ceiling_score != null ? p.ceiling_score : '',
-      p.player_type   || '',
-      p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : ''
-    ]);
+  if (allRows.length > 0) {
+    sheet.getRange(2, 1, allRows.length, headers.length).setValues(allRows);
 
-    if (rows.length > 0) {
-      sheet.getRange(currentRow, 1, rows.length, headers.length).setValues(rows);
-
-      rows.forEach((row, i) => {
-        const cell = sheet.getRange(currentRow + i, 20);
-        if (row[19] === "EXTREME VALUE")     cell.setBackground('#00cc44');
-        else if (row[19] === "STRONG VALUE") cell.setBackground('#90ee90');
-        else if (row[19] === "AVOID")        cell.setBackground('#ffcccb');
-      });
-
-      currentRow += rows.length + 2;
-    }
+    allRows.forEach((row, i) => {
+      const cell = sheet.getRange(2 + i, 20);
+      if (row[19] === "EXTREME VALUE")     cell.setBackground('#00cc44');
+      else if (row[19] === "STRONG VALUE") cell.setBackground('#90ee90');
+      else if (row[19] === "AVOID")        cell.setBackground('#ffcccb');
+    });
   }
 
   sheet.autoResizeColumns(1, headers.length);
 
-  Logger.log("Position_Value_Rankings created with " + positions.length + " position sections");
+  Logger.log("Position_Value_Rankings created: " + allRows.length + " players across " + positions.length + " positions");
 
   return true;
 }
