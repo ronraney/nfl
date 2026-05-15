@@ -892,7 +892,10 @@ function mapPlayerToSchedule(player, teamSummaries) {
   );
 
   if (!match) {
-    Logger.log(`Warning: No schedule data for ${player.player_name} (${player.team} ${player.position})`);
+    const team = String(player.team || '').trim();
+    if (team) {
+      Logger.log(`[TeamMismatch] "${player.player_name}" (${basePosition}) — team "${team}" not in Team_Schedule_Summary`);
+    }
     return null;
   }
 
@@ -934,6 +937,20 @@ function buildPlayerScheduleMapping() {
   const adpData = getADPData();
   const teamSummaries = getTeamSummaryData();
   const topPlayers = filterTopPlayersByPosition(adpData);
+
+  // Pre-run: identify ADP team abbreviations not present in schedule
+  const schedTeams = new Set(teamSummaries.map(s => s.team));
+  const adpTeams   = new Set(
+    Object.values(topPlayers).flat()
+      .map(p => String(p.team || '').trim())
+      .filter(t => t)
+  );
+  const missingTeams = [...adpTeams].filter(t => !schedTeams.has(t)).sort();
+  if (missingTeams.length > 0) {
+    Logger.log(`[TeamCoverage] ADP teams not in schedule (check abbreviations): ${missingTeams.join(', ')}`);
+  } else {
+    Logger.log(`[TeamCoverage] All ADP teams present in schedule`);
+  }
 
   const mappedPlayers = [];
 
