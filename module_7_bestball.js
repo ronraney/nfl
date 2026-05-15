@@ -307,9 +307,8 @@ function writePositionValueRankings() {
     'rank', 'position', 'player_name', 'team', 'adp', 'round',
     'a_plus_games', 'a_games', 'b_games', 'elite_game_value', 'elite_game_value_raw',
     'schedule_pct', 'cost_pct', 'value_score',
-    'schedule_quality', 'schedule_quality_raw', 'elite_games_count', 'stack_role', 'best_stack_with', 'stack_strategy',
-    'value_class', 'recommendation',
-    'ceiling_rate', 'volatility', 'ceiling_score', 'player_type', 'l6_ceiling',
+    'schedule_quality', 'schedule_quality_raw', 'elite_games_count', 'stack_role', 'best_stack_with',
+    'ceiling_rate', 'volatility', 'ceiling_score', 'l6_ceiling',
     'playoff_score', 'playoff_score_raw'
   ];
 
@@ -345,13 +344,9 @@ function writePositionValueRankings() {
     p.elite_games_count,
     p.stack_role,
     p.best_stack_with,
-    p.stack_strategy,
-    p.value_class,
-    p.recommendation,
     p.ceiling_rate  != null ? Math.round(p.ceiling_rate  * 10) / 10 : '',
     p.volatility    != null ? Math.round(p.volatility    * 10) / 10 : '',
     p.ceiling_score != null ? p.ceiling_score : '',
-    p.player_type   || '',
     p.l6_ceiling    != null ? Math.round(p.l6_ceiling    * 10) / 10 : '',
     p.playoff_score     != null ? p.playoff_score : 0,
     p.playoff_score_raw != null ? Math.round(p.playoff_score_raw * 100) / 100 : 0
@@ -359,13 +354,6 @@ function writePositionValueRankings() {
 
   if (allRows.length > 0) {
     sheet.getRange(2, 1, allRows.length, headers.length).setValues(allRows);
-
-    allRows.forEach((row, i) => {
-      const cell = sheet.getRange(2 + i, 19);
-      if (row[18] === "EXTREME VALUE")     cell.setBackground('#00cc44');
-      else if (row[18] === "STRONG VALUE") cell.setBackground('#90ee90');
-      else if (row[18] === "AVOID")        cell.setBackground('#ffcccb');
-    });
   }
 
   sheet.autoResizeColumns(1, headers.length);
@@ -568,8 +556,7 @@ function writeStackTargets() {
     'qb_name', 'qb_adp',
     'pc1_name', 'pc1_position', 'pc1_adp',
     'pc2_name', 'pc2_position', 'pc2_adp',
-    'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency', 'stack_efficiency_raw',
-    'draft_strategy'
+    'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency', 'stack_efficiency_raw'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -583,8 +570,7 @@ function writeStackTargets() {
     s.qb_name, s.qb_adp,
     s.pc1_name, s.pc1_position, s.pc1_adp,
     s.pc2_name, s.pc2_position, s.pc2_adp,
-    s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency, s.stack_efficiency_raw,
-    s.draft_strategy
+    s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency, s.stack_efficiency_raw
   ]);
 
   if (rows.length > 0) {
@@ -1300,7 +1286,7 @@ function writeTeamStackRankings() {
 
   const headers = [
     'rank', 'team', 'best_stack_eff', 'avg_stack_eff', 'viable_stacks',
-    'a_plus_count', 'a_count', 'b_count', 'composite_score', 'composite_score_raw', 'recommendation'
+    'a_plus_count', 'a_count', 'b_count', 'composite_score', 'composite_score_raw'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -1318,8 +1304,7 @@ function writeTeamStackRankings() {
     t.a_count,
     t.b_count,
     t.composite_score,
-    t.composite_score_raw,
-    t.recommendation
+    t.composite_score_raw
   ]);
 
   if (rows.length > 0) {
