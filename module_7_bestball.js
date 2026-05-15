@@ -358,7 +358,7 @@ function writePositionValueRankings() {
     // XLOOKUP: player_name (col C) → Rankings sheet "ECR VS ADP" column
     const adpEcrCol = headers.indexOf('adp_ecr') + 1;
     const formulas = allRows.map((_, i) => [
-      `=XLOOKUP(C${i + 2},Rankings!A:A,INDEX(Rankings!A:Z,0,MATCH("ECR VS ADP",Rankings!1:1,0)),"")`
+      `=XLOOKUP(C${i + 2},Rankings!C:C,INDEX(Rankings!A:Z,0,MATCH("ECR VS ADP",Rankings!1:1,0)),"")`
     ]);
     sheet.getRange(2, adpEcrCol, formulas.length, 1).setFormulas(formulas);
   }
