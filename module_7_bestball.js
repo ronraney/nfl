@@ -1657,17 +1657,6 @@ function matchVarianceRecord(player, varianceData) {
   match = varianceData.find(r => normalizePlayerName(r['Player']) === needle);
   if (match) return match;
 
-  // Diagnostic: log normalized ADP name vs all Dashboard candidates for known problem players
-  if (needle.includes('lamb') || needle.includes('jefferson')) {
-    Logger.log(`[NameDiag] ADP: "${player.player_name}" → normalized: "${needle}" (${pos})`);
-    varianceData
-      .filter(r => {
-        const n = normalizePlayerName(r['Player']);
-        return n.includes('lamb') || n.includes('jefferson');
-      })
-      .forEach(r => Logger.log(`[NameDiag] Dashboard: "${r['Player']}" → normalized: "${normalizePlayerName(r['Player'])}" (${r['Position']})`));
-  }
-
   // Log failed match with enough context to diagnose: normalized needle vs
   // the closest variance name (first token match) so we can spot truncations,
   // suffixes, or alternate spellings.
