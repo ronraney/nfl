@@ -642,7 +642,7 @@ function onOpen() {
 
   // Module 7: Best Ball analysis
   ui.createMenu('Best Ball')
-    .addItem('Process Schedule', 'buildTeamScheduleSummary')
+    .addItem('Build Team Summary', 'buildTeamScheduleSummary')
     .addSeparator()
     .addItem('Build All Sheets', 'runAllSheets')
     .addToUi();
