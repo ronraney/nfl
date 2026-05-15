@@ -304,7 +304,7 @@ function writePositionValueRankings() {
   }
 
   const headers = [
-    'rank', 'position', 'player_name', 'team', 'adp', 'round',
+    'rank', 'position', 'player_name', 'team', 'adp', 'adp_ecr', 'round',
     'elite_games', 'strong_games', 'playable_games', 'elite_game_value', 'elite_game_value_raw',
     'schedule_pct', 'value_score',
     'schedule_quality', 'schedule_quality_raw', 'elite_games_count', 'stack_role', 'best_stack_with',
@@ -330,6 +330,7 @@ function writePositionValueRankings() {
     p.player_name,
     p.team,
     p.adp,
+    '',  // adp_ecr — XLOOKUP formula written below
     p.round,
     p.elite_games,
     p.strong_games,
@@ -353,6 +354,13 @@ function writePositionValueRankings() {
 
   if (allRows.length > 0) {
     sheet.getRange(2, 1, allRows.length, headers.length).setValues(allRows);
+
+    // XLOOKUP: player_name (col C) → Rankings sheet "ECR VS ADP" column
+    const adpEcrCol = headers.indexOf('adp_ecr') + 1;
+    const formulas = allRows.map((_, i) => [
+      `=XLOOKUP(C${i + 2},Rankings!A:A,INDEX(Rankings!A:Z,0,MATCH("ECR VS ADP",Rankings!1:1,0)),"")`
+    ]);
+    sheet.getRange(2, adpEcrCol, formulas.length, 1).setFormulas(formulas);
   }
 
   sheet.autoResizeColumns(1, headers.length);
