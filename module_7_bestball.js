@@ -548,6 +548,21 @@ function writeStackTargets() {
 
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+
+    const ecr = (lookupCol, row) =>
+      `=XLOOKUP(${lookupCol}${row},Rankings!C:C,INDEX(Rankings!A:Z,0,MATCH("ECR VS ADP",Rankings!1:1,0)),"")`;
+
+    const fMain = [], fA = [], fB = [];
+    rows.forEach((_, i) => {
+      const r = i + 2;
+      fMain.push([ecr('C', r)]);   // col F: main player
+      fA.push([ecr('K', r)]);      // col M: stack_with_a
+      fB.push([ecr('N', r)]);      // col P: stack_with_b
+    });
+
+    sheet.getRange(2, 6,  fMain.length, 1).setFormulas(fMain);
+    sheet.getRange(2, 13, fA.length,    1).setFormulas(fA);
+    sheet.getRange(2, 16, fB.length,    1).setFormulas(fB);
   }
 
   sheet.setFrozenRows(1);
@@ -1407,9 +1422,10 @@ function writeDraftStrategyTiers() {
   }
 
   const headers = [
-    'round', 'position', 'player_name', 'team', 'adp',
+    'round', 'position', 'player_name', 'team', 'adp', 'ecr_vs_adp',
     'value_score', 'schedule_quality', 'playoff_score', 'elite_games',
-    'stack_with_a', 'round_a', 'stack_with_b', 'round_b'
+    'stack_with_a', 'round_a', 'ecr_vs_adp_a',
+    'stack_with_b', 'round_b', 'ecr_vs_adp_b'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -1437,14 +1453,17 @@ function writeDraftStrategyTiers() {
       p.player_name,
       p.team,
       p.adp,
+      '',  // ecr_vs_adp — formula written below (col F)
       p.value_score,
       p.schedule_quality,
       p.playoff_score != null ? p.playoff_score : 0,
       p.elite_games,
       nameA,
       nameA ? (roundByName[nameA] || '') : '',
+      '',  // ecr_vs_adp_a — formula written below (col M)
       nameB,
-      nameB ? (roundByName[nameB] || '') : ''
+      nameB ? (roundByName[nameB] || '') : '',
+      ''   // ecr_vs_adp_b — formula written below (col P)
     ];
   });
 
