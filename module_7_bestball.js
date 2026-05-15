@@ -637,6 +637,7 @@ function runAllSheets() {
   writeStackTargets();          // Stack_Targets
   writeTeamStackRankings();     // Team_Stack_Rankings
   writeGameScores();            // Game_Scores
+  writeDraftStrategyTiers();    // Draft_Strategy_Tiers (flat by round)
 
   ss.toast('Done!', 'Best Ball', 5);
   Logger.log('runAllSheets complete');
@@ -1447,72 +1448,8 @@ function testGameScores() {
 // TASK 5A: DRAFT STRATEGY TIERS
 // ============================================================
 
-function segmentPlayersByRound(rankings) {
-  const rounds = {};
-  for (let round = 1; round <= 18; round++) {
-    rounds[round] = { QB: [], RB: [], WR: [], TE: [] };
-  }
-
-  for (const [pos, players] of Object.entries(rankings)) {
-    players.forEach(p => {
-      const round = Math.ceil(p.adp / 12);
-      if (round >= 1 && round <= 18) {
-        rounds[round][pos].push(p);
-      }
-    });
-  }
-
-  return rounds;
-}
-
-function getBestPositionInRound(roundPlayers) {
-  const posAvgs = {};
-  for (const [pos, players] of Object.entries(roundPlayers)) {
-    if (players.length > 0) {
-      posAvgs[pos] = players.reduce((sum, p) => sum + p.value_score, 0) / players.length;
-    }
-  }
-  return Object.entries(posAvgs).sort((a, b) => b[1] - a[1])[0]?.[0] || 'N/A';
-}
-
-function analyzeRound(roundPlayers) {
-  const allPlayers = [
-    ...roundPlayers.QB,
-    ...roundPlayers.RB,
-    ...roundPlayers.WR,
-    ...roundPlayers.TE
-  ];
-
-  if (allPlayers.length === 0) {
-    return { total_players: 0, extreme_value: 0, strong_value: 0, avg_value_score: 0, best_position: 'N/A' };
-  }
-
-  return {
-    total_players:   allPlayers.length,
-    extreme_value:   allPlayers.filter(p => p.value_class === 'EXTREME VALUE').length,
-    strong_value:    allPlayers.filter(p => p.value_class === 'STRONG VALUE').length,
-    avg_value_score: Math.round(allPlayers.reduce((sum, p) => sum + p.value_score, 0) / allPlayers.length),
-    best_position:   getBestPositionInRound(roundPlayers)
-  };
-}
-
-function generateRoundStrategy(round, analysis) {
-  if (round <= 3) {
-    return 'ELITE ENVIRONMENTS ONLY - Target top players from dome teams and elite schedules. Prioritize talent + schedule combo.';
-  } else if (round <= 8) {
-    if (analysis.extreme_value >= 2) {
-      return `VALUE HUNTING - ${analysis.extreme_value} extreme value players available. Focus on ${analysis.best_position} if possible.`;
-    }
-    return 'VALUE HUNTING - Look for dome WRs and late QBs with elite schedules. Schedule quality > name value.';
-  } else if (round <= 12) {
-    return 'COMPLETE YOUR STACKS - Add bring-backs to your primary games. Target opposing WRs from your QB\'s best games.';
-  }
-  return 'DART THROWS - Single elite games, handcuffs to your RBs, leverage picks with injury upside.';
-}
-
 function writeDraftStrategyTiers() {
   const rankings = buildPlayerValueRankings();
-  const byRound  = segmentPlayersByRound(rankings);
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName('Draft_Strategy_Tiers');
@@ -1522,74 +1459,44 @@ function writeDraftStrategyTiers() {
     sheet = ss.insertSheet('Draft_Strategy_Tiers');
   }
 
-  sheet.getRange(1, 1).setValue('[ ROUND-BY-ROUND DRAFT STRATEGY ]').setFontWeight('bold');
+  const headers = [
+    'round', 'position', 'player_name', 'team', 'adp',
+    'value_score', 'schedule_quality', 'playoff_score', 'elite_games', 'best_stack_with'
+  ];
 
-  let currentRow = 3;
+  sheet.getRange(1, 1, 1, headers.length)
+    .setValues([headers])
+    .setFontWeight('bold')
+    .setBackground('#efefef');
 
-  for (let round = 1; round <= 18; round++) {
-    const roundPlayers = byRound[round];
-    const analysis     = analyzeRound(roundPlayers);
-    const strategy     = generateRoundStrategy(round, analysis);
+  const allPlayers = Object.values(rankings).flat();
+  allPlayers.sort((a, b) => {
+    if (a.round !== b.round) return a.round - b.round;
+    return b.value_score - a.value_score;
+  });
 
-    sheet.getRange(currentRow, 1)
-      .setValue(`ROUND ${round} (Picks ${(round - 1) * 12 + 1}-${round * 12})`)
-      .setFontWeight('bold');
-    currentRow++;
+  const rows = allPlayers.map(p => [
+    p.round,
+    p.position,
+    p.player_name,
+    p.team,
+    p.adp,
+    p.value_score,
+    p.schedule_quality,
+    p.playoff_score != null ? p.playoff_score : 0,
+    p.elite_games,
+    p.best_stack_with || ''
+  ]);
 
-    sheet.getRange(currentRow, 1, 1, 3).merge().setValue(strategy).setWrap(true);
-    currentRow++;
-
-    sheet.getRange(currentRow, 1).setValue(`Players in round: ${analysis.total_players}`);
-    sheet.getRange(currentRow, 2).setValue(`Extreme value: ${analysis.extreme_value}`);
-    sheet.getRange(currentRow, 3).setValue(`Best position: ${analysis.best_position}`);
-    currentRow++;
-
-    if (analysis.extreme_value > 0) {
-      sheet.getRange(currentRow, 1).setValue('Top value picks:');
-      currentRow++;
-
-      const allPlayers = [
-        ...roundPlayers.QB,
-        ...roundPlayers.RB,
-        ...roundPlayers.WR,
-        ...roundPlayers.TE
-      ];
-      const extremePlayers = allPlayers
-        .filter(p => p.value_class === 'EXTREME VALUE')
-        .sort((a, b) => b.value_score - a.value_score)
-        .slice(0, 3);
-
-      extremePlayers.forEach(p => {
-        sheet.getRange(currentRow, 1).setValue(`  ${p.player_name} (${p.position}, ${p.team}) - ADP ${p.adp}`);
-        currentRow++;
-      });
-    }
-
-    currentRow += 2;
+  if (rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
 
-  sheet.autoResizeColumns(1, 3);
-  sheet.setColumnWidth(1, 500);
+  sheet.setFrozenRows(1);
+  sheet.autoResizeColumns(1, headers.length);
 
-  Logger.log('Draft_Strategy_Tiers created');
-
+  Logger.log(`Draft_Strategy_Tiers created: ${rows.length} players`);
   return true;
-}
-
-function testTask5A() {
-  try {
-    writeDraftStrategyTiers();
-
-    Logger.log(
-      'Task 5A Complete!\n' +
-      'Draft_Strategy_Tiers created\n' +
-      '18 rounds of strategy\n' +
-      'Check sheet for guidance'
-    );
-
-  } catch (error) {
-    Logger.log('Error: ' + error.message);
-  }
 }
 
 // ============================================================
