@@ -723,11 +723,8 @@ function enrichWithStackData(byPosition, scheduleData, percentiles) {
       }
     });
 
-    // RBs with value and decent grade get Flex Option
     rbs.forEach(rb => {
-      if (rb.value_score > 0 && ['A+', 'A', 'B'].includes(rb.stack_grade)) {
-        rb.stack_role = 'Flex Option';
-      }
+      if (rb.value_score > 0) rb.stack_role = 'Flex Option';
     });
 
     // Helper: top N pass catchers by value_score, optionally excluding one player
@@ -747,11 +744,7 @@ function enrichWithStackData(byPosition, scheduleData, percentiles) {
         const others = topPassCatchers(p.player_name, 1);
         p.best_stack_with = [qbName, ...others].filter(Boolean).join(', ');
       } else if (p.position === 'RB') {
-        if (['A+', 'A', 'B'].includes(p.stack_grade)) {
-          p.best_stack_with = [qbName, wrs[0] ? wrs[0].player_name : null].filter(Boolean).join(', ');
-        } else {
-          p.best_stack_with = '';
-        }
+        p.best_stack_with = [qbName, wrs[0] ? wrs[0].player_name : null].filter(Boolean).join(', ');
       }
       p.stack_strategy = computeStackStrategy(p.stack_grade, p.stack_role);
     });
