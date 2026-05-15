@@ -460,8 +460,6 @@ function computeStackDraftStrategy(grade) {
 }
 
 function buildStackTargets(byPosition) {
-  const POS_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3 };
-
   // Only players with value_score >= 50 qualify
   const allPlayers = Object.values(byPosition).flat().filter(p => p.value_score >= 50);
 
@@ -472,22 +470,16 @@ function buildStackTargets(byPosition) {
   });
 
   function buildStack(team, playerSet) {
-    // Sort players within stack by value_score descending — ensures consistent ordering
-    // and deduplication (A+B and B+A are the same sorted set, and i<j<k iteration
-    // guarantees each unique combination is generated exactly once)
+    // Sort by value_score descending — stack_type label reflects actual player order,
+    // and i<j<k iteration guarantees each unique combination appears exactly once
     const sorted = [...playerSet].sort((a, b) => b.value_score - a.value_score);
-    const positions = sorted.map(p => p.position)
-      .sort((a, b) => (POS_ORDER[a] ?? 99) - (POS_ORDER[b] ?? 99));
-    const combined_value      = sorted.reduce((sum, p) => sum + p.value_score, 0);
-    const total_stack_cost    = Math.round(sorted.reduce((sum, p) => sum + p.adp, 0) * 10) / 10;
-    const shared_schedule_quality = Math.round(
-      sorted.reduce((sum, p) => sum + (p.schedule_quality || 0), 0) / sorted.length
-    );
-    const stack_efficiency = total_stack_cost > 0
-      ? Math.round((combined_value / total_stack_cost) * 100) / 100
-      : 0;
-    return { team, stack_type: positions.join('+'), combined_value, total_stack_cost,
-             shared_schedule_quality, stack_efficiency, players: sorted };
+    const combined_value          = sorted.reduce((sum, p) => sum + p.value_score, 0);
+    const total_stack_cost        = Math.round(sorted.reduce((sum, p) => sum + p.adp, 0) * 10) / 10;
+    const shared_schedule_quality = Math.round(sorted.reduce((sum, p) => sum + (p.schedule_quality || 0), 0) / sorted.length);
+    const stack_playoff_score     = Math.round(sorted.reduce((sum, p) => sum + (p.playoff_score     || 0), 0) / sorted.length);
+    const stack_type              = sorted.map(p => p.position).join('+');
+    return { team, stack_type, combined_value, total_stack_cost,
+             shared_schedule_quality, stack_playoff_score, players: sorted };
   }
 
   const stacks = [];
@@ -525,7 +517,7 @@ function writeStackTargets() {
     'player1_name', 'player1_position', 'player1_adp',
     'player2_name', 'player2_position', 'player2_adp',
     'player3_name', 'player3_position', 'player3_adp',
-    'combined_value', 'total_stack_cost', 'shared_schedule_quality', 'stack_efficiency'
+    'combined_value', 'total_stack_cost', 'shared_schedule_quality', 'stack_playoff_score'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -542,7 +534,7 @@ function writeStackTargets() {
       p1.player_name, p1.position, p1.adp,
       p2.player_name, p2.position, p2.adp,
       p3 ? p3.player_name : '', p3 ? p3.position : '', p3 ? p3.adp : '',
-      s.combined_value, s.total_stack_cost, s.shared_schedule_quality, s.stack_efficiency
+      s.combined_value, s.total_stack_cost, s.shared_schedule_quality, s.stack_playoff_score
     ];
   });
 
