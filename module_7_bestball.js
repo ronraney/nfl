@@ -305,7 +305,7 @@ function writePositionValueRankings() {
 
   const headers = [
     'rank', 'position', 'player_name', 'team', 'adp', 'round',
-    'a_plus_games', 'a_games', 'b_games', 'elite_game_value', 'elite_game_value_raw',
+    'elite_games', 'strong_games', 'playable_games', 'elite_game_value', 'elite_game_value_raw',
     'schedule_pct', 'cost_pct', 'value_score',
     'schedule_quality', 'schedule_quality_raw', 'elite_games_count', 'stack_role', 'best_stack_with',
     'ceiling_rate', 'volatility', 'ceiling_score', 'l6_ceiling',
@@ -331,9 +331,9 @@ function writePositionValueRankings() {
     p.team,
     p.adp,
     p.round,
-    p.a_plus_games,
-    p.a_games,
-    p.b_games,
+    p.elite_games,
+    p.strong_games,
+    p.playable_games,
     p.elite_game_value,
     p.elite_game_value_raw  != null ? Math.round(p.elite_game_value_raw  * 10) / 10 : '',
     p.schedule_percentile,
@@ -902,9 +902,9 @@ function mapPlayerToSchedule(player, teamSummaries) {
     position: basePosition,
     adp: player.adp,
     total_games: match.total_games,
-    a_plus_games: match.a_plus_games,
-    a_games: match.a_games,
-    b_games: match.b_games,
+    elite_games: match.elite_games,
+    strong_games: match.strong_games,
+    playable_games: match.playable_games,
     elite_game_value: match.elite_game_value,
     playoff_score: match.playoff_score || 0
   };
@@ -965,11 +965,11 @@ function testTask3A() {
     const larPlayers = mappedPlayers.filter(p => p.team === 'LAR');
     Logger.log("LAR Players with schedule data:");
     larPlayers.forEach(p => {
-      Logger.log(`${p.player_name} (${p.position}, ADP ${p.adp}): ${p.a_plus_games} A+ games, value ${p.elite_game_value}`);
+      Logger.log(`${p.player_name} (${p.position}, ADP ${p.adp}): ${p.elite_games} A+ games, value ${p.elite_game_value}`);
     });
 
-    const sorted = [...mappedPlayers].sort((a, b) => b.a_plus_games - a.a_plus_games);
-    Logger.log(`Most A+ games: ${sorted[0].player_name} (${sorted[0].position}, ${sorted[0].team}): ${sorted[0].a_plus_games}`);
+    const sorted = [...mappedPlayers].sort((a, b) => b.elite_games - a.elite_games);
+    Logger.log(`Most A+ games: ${sorted[0].player_name} (${sorted[0].position}, ${sorted[0].team}): ${sorted[0].elite_games}`);
 
     Logger.log(
       "Task 3A Complete!\n" +
@@ -1028,9 +1028,9 @@ function generateTeamPositionSummary(team, teamSchedule) {
       team: team,
       position: position,
       total_games: gradeCounts.total_games,
-      a_plus_games: gradeCounts.a_plus,
-      a_games: gradeCounts.a,
-      b_games: gradeCounts.b,
+      elite_games: gradeCounts.a_plus,
+      strong_games: gradeCounts.a,
+      playable_games: gradeCounts.b,
       c_games: gradeCounts.c,
       d_games: gradeCounts.d,
       elite_game_value: Math.round(eliteValue * 10) / 10,
@@ -1064,16 +1064,16 @@ function buildTeamScheduleSummary() {
   }
 
   const headers = [
-    'team', 'position', 'total_games', 'a_plus_games', 'a_games',
-    'b_games', 'c_games', 'd_games', 'elite_game_value',
+    'team', 'position', 'total_games', 'elite_games', 'strong_games',
+    'playable_games', 'c_games', 'd_games', 'elite_game_value',
     'playoff_a_plus', 'playoff_a', 'playoff_score'
   ];
 
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
 
   const rows = allSummaries.map(s => [
-    s.team, s.position, s.total_games, s.a_plus_games, s.a_games,
-    s.b_games, s.c_games, s.d_games, s.elite_game_value,
+    s.team, s.position, s.total_games, s.elite_games, s.strong_games,
+    s.playable_games, s.c_games, s.d_games, s.elite_game_value,
     s.playoff_a_plus, s.playoff_a, s.playoff_score
   ]);
 
@@ -1097,14 +1097,14 @@ function testTask2B() {
     const larSummaries = summaries.filter(s => s.team === 'LAR');
     Logger.log("LAR Position Summaries:");
     larSummaries.forEach(s => {
-      Logger.log(`${s.position}: A+=${s.a_plus_games}, A=${s.a_games}, Value=${s.elite_game_value}`);
+      Logger.log(`${s.position}: A+=${s.elite_games}, A=${s.strong_games}, Value=${s.elite_game_value}`);
     });
 
     const qbSummaries = summaries.filter(s => s.position === 'QB');
-    qbSummaries.sort((a, b) => b.a_plus_games - a.a_plus_games);
+    qbSummaries.sort((a, b) => b.elite_games - a.elite_games);
     Logger.log("Top 3 teams for QB A+ games:");
     qbSummaries.slice(0, 3).forEach(s => {
-      Logger.log(`${s.team}: ${s.a_plus_games} A+ games`);
+      Logger.log(`${s.team}: ${s.elite_games} A+ games`);
     });
 
     Logger.log(
@@ -1232,9 +1232,9 @@ function buildTeamStackRankings(stacks) {
       ? Math.round((efficiencies.reduce((sum, e) => sum + e, 0) / efficiencies.length) * 100) / 100
       : 0;
     const viable_stacks   = teamStacks.length;
-    const a_plus_count    = teamStacks.filter(s => s.stack_efficiency >= 8.0).length;
-    const a_count         = teamStacks.filter(s => s.stack_efficiency >= 6.0 && s.stack_efficiency < 8.0).length;
-    const b_count         = teamStacks.filter(s => s.stack_efficiency >= 4.0 && s.stack_efficiency < 6.0).length;
+    const elite_stack_count = teamStacks.filter(s => s.stack_efficiency >= 8.0).length;
+    const strong_stack_count   = teamStacks.filter(s => s.stack_efficiency >= 6.0 && s.stack_efficiency < 8.0).length;
+    const playable_stack_count = teamStacks.filter(s => s.stack_efficiency >= 4.0 && s.stack_efficiency < 6.0).length;
     const composite_score = Math.round(((best_stack_eff * 0.4) + (avg_stack_eff * 0.4) + (Math.min(viable_stacks, 10) * 0.2)) * 100) / 100;
 
     let team_grade;
@@ -1257,9 +1257,9 @@ function buildTeamStackRankings(stacks) {
       best_stack_eff:  Math.round(best_stack_eff * 100) / 100,
       avg_stack_eff,
       viable_stacks,
-      a_plus_count,
-      a_count,
-      b_count,
+      elite_stack_count,
+      strong_stack_count,
+      playable_stack_count,
       composite_score,
       team_grade,
       recommendation: recommendationMap[team_grade]
@@ -1286,7 +1286,7 @@ function writeTeamStackRankings() {
 
   const headers = [
     'rank', 'team', 'best_stack_eff', 'avg_stack_eff', 'viable_stacks',
-    'a_plus_count', 'a_count', 'b_count', 'composite_score', 'composite_score_raw'
+    'elite_stack_count', 'strong_stack_count', 'playable_stack_count', 'composite_score', 'composite_score_raw'
   ];
 
   sheet.getRange(1, 1, 1, headers.length)
@@ -1300,9 +1300,9 @@ function writeTeamStackRankings() {
     t.best_stack_eff,
     t.avg_stack_eff,
     t.viable_stacks,
-    t.a_plus_count,
-    t.a_count,
-    t.b_count,
+    t.elite_stack_count,
+    t.strong_stack_count,
+    t.playable_stack_count,
     t.composite_score,
     t.composite_score_raw
   ]);
@@ -1639,7 +1639,7 @@ function validateModule7Complete() {
   check('LAR WRs have elite schedule (8+ A+ games)', () => {
     const summary = getTeamSummaryData();
     const larWR = summary.find(s => s.team === 'LAR' && s.position === 'WR');
-    const count = larWR ? larWR.a_plus_games : 0;
+    const count = larWR ? larWR.elite_games : 0;
     return { passed: count >= 8, details: `LAR WR A+ games: ${count} (expected >= 8)` };
   });
 
@@ -1830,7 +1830,7 @@ function applyVarianceMetrics(byPosition, varianceData) {
         (p.schedule_percentile * 0.6) + (p.ceiling_score * 0.4)
       );
       p.value_class    = classifyPlayerValue(p.value_score);
-      p.recommendation = generateRecommendation(p.value_class, p.a_plus_games);
+      p.recommendation = generateRecommendation(p.value_class, p.elite_games);
     });
   }
 
