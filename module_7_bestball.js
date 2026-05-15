@@ -291,6 +291,27 @@ function testTask4A() {
 // TASK 3C: CREATE POSITION VALUE RANKINGS SHEET
 // ============================================================
 
+function loadEcrLookup() {
+  const ss    = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName('Rankings');
+  if (!sheet) return {};
+  const data    = sheet.getDataRange().getValues();
+  const headers = data[0].map(h => String(h).trim());
+  const nameCol = headers.indexOf('PLAYER NAME');
+  const ecrCol  = headers.indexOf('ECR VS ADP');
+  if (nameCol === -1 || ecrCol === -1) {
+    Logger.log('[ECR] Rankings sheet missing PLAYER NAME or ECR VS ADP column');
+    return {};
+  }
+  const lookup = {};
+  for (let i = 1; i < data.length; i++) {
+    const name = String(data[i][nameCol] || '').trim();
+    if (name) lookup[name] = data[i][ecrCol];
+  }
+  Logger.log(`[ECR] Loaded ${Object.keys(lookup).length} entries from Rankings`);
+  return lookup;
+}
+
 function writePositionValueRankings() {
   const rankings = buildPlayerValueRankings();
 
@@ -353,14 +374,11 @@ function writePositionValueRankings() {
   ]);
 
   if (allRows.length > 0) {
+    const ecrLookup = loadEcrLookup();
+    allPlayers.forEach((p, i) => {
+      allRows[i][headers.indexOf('adp_ecr')] = ecrLookup[p.player_name] ?? '';
+    });
     sheet.getRange(2, 1, allRows.length, headers.length).setValues(allRows);
-
-    // XLOOKUP: player_name (col C) → Rankings sheet "ECR VS ADP" column
-    const adpEcrCol = headers.indexOf('adp_ecr') + 1;
-    const formulas = allRows.map((_, i) => [
-      `=XLOOKUP(C${i + 2},Rankings!C:C,Rankings!G:G,"")`
-    ]);
-    sheet.getRange(2, adpEcrCol, formulas.length, 1).setFormulas(formulas);
   }
 
   sheet.autoResizeColumns(1, headers.length);
@@ -547,22 +565,17 @@ function writeStackTargets() {
   });
 
   if (rows.length > 0) {
-    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
-
-    const ecr = (lookupCol, row) =>
-      `=XLOOKUP(${lookupCol}${row},Rankings!C:C,Rankings!G:G,"")`;
-
-    const fMain = [], fA = [], fB = [];
-    rows.forEach((_, i) => {
-      const r = i + 2;
-      fMain.push([ecr('C', r)]);   // col F: main player
-      fA.push([ecr('K', r)]);      // col M: stack_with_a
-      fB.push([ecr('N', r)]);      // col P: stack_with_b
+    const ecrLookup = loadEcrLookup();
+    const ecrMainIdx = headers.indexOf('ecr_vs_adp');
+    const ecrAIdx    = headers.indexOf('ecr_vs_adp_a');
+    const ecrBIdx    = headers.indexOf('ecr_vs_adp_b');
+    allPlayers.forEach((p, i) => {
+      const partners = (p.best_stack_with || '').split(', ').filter(Boolean);
+      rows[i][ecrMainIdx] = ecrLookup[p.player_name]  ?? '';
+      rows[i][ecrAIdx]    = ecrLookup[partners[0]]    ?? '';
+      rows[i][ecrBIdx]    = ecrLookup[partners[1]]    ?? '';
     });
-
-    sheet.getRange(2, 6,  fMain.length, 1).setFormulas(fMain);
-    sheet.getRange(2, 13, fA.length,    1).setFormulas(fA);
-    sheet.getRange(2, 16, fB.length,    1).setFormulas(fB);
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
 
   sheet.setFrozenRows(1);
