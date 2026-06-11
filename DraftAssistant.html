@@ -367,6 +367,26 @@ body {
   color: var(--muted);
 }
 
+/* ── RECOMMENDATIONS MODAL ── */
+.rec-modal-inner {
+  width: 520px;
+  max-width: 94vw;
+}
+.rec-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 4px;
+}
+.rec-rank {
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
 /* ── SCROLLBARS ── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -433,6 +453,16 @@ body {
 
     <div class="modal-footer">
       <button class="btn" onclick="closeSettings()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="rec-modal">
+  <div class="modal rec-modal-inner">
+    <h2 id="rec-title">Top Picks Available</h2>
+    <div class="rec-grid" id="rec-grid"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeRec()">Close</button>
     </div>
   </div>
 </div>
@@ -564,6 +594,7 @@ function loadDraft(draftId) {
       const btn = document.getElementById('draft-btn');
       if (btn) { btn.disabled = true; btn.textContent = 'DRAFT SELECTED'; }
       render();
+      showRecommendations();
     })
     .withFailureHandler(function(err) {
       console.error('loadDraft failed:', err.message);
@@ -601,6 +632,7 @@ function newDraft() {
   const btn = document.getElementById('draft-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'DRAFT SELECTED'; }
   render();
+  showRecommendations();
 }
 
 // ── LAYOUT ────────────────────────────────────────────────────────────────
@@ -938,6 +970,83 @@ function renderCompletedStacks() {
   });
 
   area.innerHTML = badges.join('');
+}
+
+// ── RECOMMENDATIONS ──────────────────────────────────────────────────────
+
+function pctRankPlayers(players, getValue) {
+  const n = players.length;
+  if (n === 0) return;
+  const sorted = [...players].sort((a, b) => getValue(a) - getValue(b));
+  sorted.forEach((p, i) => { p._pct = n > 1 ? Math.round((i / (n - 1)) * 100) : 50; });
+}
+
+function getTopRecommendations(n) {
+  const available = allPlayers.filter(p =>
+    !draftedNames.has(p.player_name) && !skippedNames.has(p.player_name)
+  );
+  if (available.length === 0) return [];
+
+  const tmp = available.map(p => ({ ...p }));
+
+  pctRankPlayers(tmp, p => Number(p.value_score) || 0);
+  tmp.forEach(p => { p._vs_pct = p._pct; });
+
+  pctRankPlayers(tmp, p => Number(p.ecr_vs_adp) || 0);
+  tmp.forEach(p => { p._ecr_pct = p._pct; });
+
+  pctRankPlayers(tmp, p => Number(p.playoff_score) || 0);
+  tmp.forEach(p => { p._po_pct = p._pct; });
+
+  tmp.forEach(p => {
+    p._pick_score = Math.round((p._vs_pct * 0.4) + (p._ecr_pct * 0.4) + (p._po_pct * 0.2));
+  });
+
+  return tmp.sort((a, b) => b._pick_score - a._pick_score).slice(0, n || 4);
+}
+
+function showRecommendations() {
+  const recs = getTopRecommendations(4);
+  if (recs.length === 0) return;
+
+  const cr = currentRound();
+  const title = document.getElementById('rec-title');
+  if (title) title.textContent = `Round ${cr} — Top Picks Available`;
+
+  const grid = document.getElementById('rec-grid');
+  if (!grid) return;
+
+  grid.innerHTML = recs.map((p, i) => {
+    const vs     = Math.round(Number(p.value_score) || 0);
+    const ecrRaw = Number(p.ecr_vs_adp);
+    const ecrStr = (!isNaN(ecrRaw) && ecrRaw !== 0)
+      ? `<span style="color:${ecrRaw > 0 ? 'var(--green)' : '#ef4444'};font-weight:700">${ecrRaw > 0 ? '+' : ''}${Math.round(ecrRaw)}</span>`
+      : '';
+    const safeName = p.player_name.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return `<div class="p-card" data-name="${safeName}" onclick="selectFromRec('${safeName}')">
+      <div class="rec-rank">#${i + 1} Pick Score: ${p._pick_score}</div>
+      <div class="p-top">
+        <div class="p-name">${p.player_name}</div>
+        <span class="v-badge" style="color:${valueColor(vs)}">${vs}</span>
+      </div>
+      <div class="p-meta">
+        <span class="p-team">${p.team} · ${p.position} · ${Number(p.adp).toFixed(1)}</span>
+        ${ecrStr}
+        <span class="sp">PO:${Math.round(Number(p.playoff_score) || 0)}</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('rec-modal').classList.add('open');
+}
+
+function closeRec() {
+  document.getElementById('rec-modal').classList.remove('open');
+}
+
+function selectFromRec(name) {
+  closeRec();
+  selectPlayer(name);
 }
 
 // ── RESET ────────────────────────────────────────────────────────────────
