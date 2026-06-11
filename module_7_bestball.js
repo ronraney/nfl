@@ -296,11 +296,12 @@ function loadEcrLookup() {
   const sheet = ss.getSheetByName('Rankings');
   if (!sheet) return {};
   const data    = sheet.getDataRange().getValues();
-  const headers = data[0].map(h => String(h).trim());
-  const nameCol = headers.indexOf('PLAYER NAME');
-  const ecrCol  = headers.indexOf('ECR VS ADP');
+  const headers = data[0].map(h => String(h).trim().toUpperCase());
+  const nameCol = headers.findIndex(h => h === 'PLAYER NAME' || h === 'PLAYER');
+  const ecrCol  = headers.findIndex(h => h.includes('ECR') && h.includes('ADP'));
   if (nameCol === -1 || ecrCol === -1) {
-    Logger.log('[ECR] Rankings sheet missing PLAYER NAME or ECR VS ADP column');
+    Logger.log('[ECR] Rankings sheet headers: ' + JSON.stringify(data[0].map(h => String(h).trim())));
+    Logger.log('[ECR] Rankings sheet missing player name or ECR VS ADP column');
     return {};
   }
   const lookup = {};
@@ -484,8 +485,7 @@ function computeStackDraftStrategy(grade) {
 }
 
 function buildStackTargets(byPosition) {
-  // Only players with value_score >= 50 qualify
-  const allPlayers = Object.values(byPosition).flat().filter(p => p.value_score >= 50);
+  const allPlayers = Object.values(byPosition).flat();
 
   const byTeam = {};
   allPlayers.forEach(p => {
@@ -875,8 +875,6 @@ function mapPlayerToSchedule(player, teamSummaries) {
 }
 
 function filterTopPlayersByPosition(adpData) {
-  const limits = { QB: 32, RB: 64, WR: 100, TE: 32 };
-
   const byPosition = { QB: [], RB: [], WR: [], TE: [] };
 
   adpData.forEach(player => {
@@ -888,7 +886,7 @@ function filterTopPlayersByPosition(adpData) {
 
   for (const [pos, players] of Object.entries(byPosition)) {
     players.sort((a, b) => a.adp - b.adp);
-    byPosition[pos] = players.slice(0, limits[pos]);
+    byPosition[pos] = players;
   }
 
   return byPosition;
