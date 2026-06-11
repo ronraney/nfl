@@ -981,13 +981,29 @@ function pctRankPlayers(players, getValue) {
   sorted.forEach((p, i) => { p._pct = n > 1 ? Math.round((i / (n - 1)) * 100) : 50; });
 }
 
+function reachWindow(round) {
+  if (round <= 5)  return 12;
+  if (round <= 10) return 15;
+  return Infinity;
+}
+
 function getTopRecommendations(n) {
-  const available = allPlayers.filter(p =>
+  const cr         = currentRound();
+  const approxPick = (cr - 1) * cfg.draftSize + 1;
+  const window     = reachWindow(cr);
+
+  const available = allPlayers.filter(p => {
+    if (draftedNames.has(p.player_name) || skippedNames.has(p.player_name)) return false;
+    if (window === Infinity) return true;
+    return (Number(p.adp) || 999) <= approxPick + window;
+  });
+
+  const pool = available.length > 0 ? available : allPlayers.filter(p =>
     !draftedNames.has(p.player_name) && !skippedNames.has(p.player_name)
   );
-  if (available.length === 0) return [];
+  if (pool.length === 0) return [];
 
-  const tmp = available.map(p => ({ ...p }));
+  const tmp = pool.map(p => ({ ...p }));
 
   pctRankPlayers(tmp, p => Number(p.value_score) || 0);
   tmp.forEach(p => { p._vs_pct = p._pct; });
